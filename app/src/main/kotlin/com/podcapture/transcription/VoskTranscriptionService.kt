@@ -3,6 +3,7 @@ package com.podcapture.transcription
 import android.content.Context
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.vosk.Recognizer
@@ -11,8 +12,18 @@ class VoskTranscriptionService(
     private val context: Context,
     private val modelManager: VoskModelManager,
     private val audioExtractor: AudioExtractor
-) {
-    suspend fun transcribe(
+) : TranscriptionService {
+
+    override val modelState: StateFlow<ModelState>
+        get() = modelManager.modelState
+
+    override fun isModelReady(): Boolean = modelManager.isModelReady()
+
+    override suspend fun ensureModelReady(): Boolean = modelManager.ensureModelDownloaded()
+
+    override fun release() = modelManager.release()
+
+    override suspend fun transcribe(
         audioUri: Uri,
         startMs: Long,
         endMs: Long
@@ -79,6 +90,4 @@ class VoskTranscriptionService(
             "[Transcription error: ${e.message}]"
         }
     }
-
-    fun isModelReady(): Boolean = modelManager.isModelReady()
 }

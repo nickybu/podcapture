@@ -6,8 +6,7 @@ import com.podcapture.data.model.AudioFile
 import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.repository.CaptureRepository
 import com.podcapture.data.settings.SettingsDataStore
-import com.podcapture.transcription.VoskModelManager
-import com.podcapture.transcription.VoskTranscriptionService
+import com.podcapture.transcription.TranscriptionService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -29,8 +28,7 @@ class CaptureManager(
     private val audioFileRepository: AudioFileRepository,
     private val captureRepository: CaptureRepository,
     private val settingsDataStore: SettingsDataStore,
-    private val voskModelManager: VoskModelManager,
-    private val transcriptionService: VoskTranscriptionService
+    private val transcriptionService: TranscriptionService
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
@@ -58,11 +56,11 @@ class CaptureManager(
                 val windowEnd = (currentPosition + windowMs).coerceAtMost(duration)
 
                 // Ensure model is downloaded
-                if (!voskModelManager.isModelReady()) {
+                if (!transcriptionService.isModelReady()) {
                     _captureState.value = _captureState.value.copy(
                         captureProgress = "Downloading speech model..."
                     )
-                    val downloaded = voskModelManager.ensureModelDownloaded()
+                    val downloaded = transcriptionService.ensureModelReady()
                     if (!downloaded) {
                         throw IllegalStateException("Failed to download speech recognition model")
                     }

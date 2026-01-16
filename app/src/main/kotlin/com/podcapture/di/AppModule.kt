@@ -9,8 +9,12 @@ import com.podcapture.data.repository.MarkdownManager
 import com.podcapture.data.repository.TagRepository
 import com.podcapture.data.settings.SettingsDataStore
 import com.podcapture.transcription.AudioExtractor
+import com.podcapture.transcription.TranscriptionEngine
+import com.podcapture.transcription.TranscriptionService
 import com.podcapture.transcription.VoskModelManager
 import com.podcapture.transcription.VoskTranscriptionService
+import com.podcapture.transcription.WhisperModelManager
+import com.podcapture.transcription.WhisperTranscriptionService
 import com.podcapture.ui.home.HomeViewModel
 import com.podcapture.ui.player.PlayerViewModel
 import com.podcapture.ui.search.PodcastDetailViewModel
@@ -42,17 +46,24 @@ val appModule = module {
     // Audio player
     single { AudioPlayerService(androidContext()) }
 
-    // Transcription
+    // Transcription - Model managers
     single { VoskModelManager(androidContext()) }
+    single { WhisperModelManager(androidContext()) }
     single { AudioExtractor(androidContext()) }
-    single { VoskTranscriptionService(androidContext(), get(), get()) }
+
+    // Transcription services
+    single { VoskTranscriptionService(androidContext(), get<VoskModelManager>(), get()) }
+    single { WhisperTranscriptionService(androidContext(), get<WhisperModelManager>(), get()) }
+
+    // Default transcription service - change to WhisperTranscriptionService when native libs are ready
+    single<TranscriptionService> { get<VoskTranscriptionService>() }
 
     // Capture Manager (for mini player capture)
-    single { CaptureManager(get(), get(), get(), get(), get(), get()) }
+    single { CaptureManager(get(), get(), get(), get(), get()) }
 
     // ViewModels
     viewModel { HomeViewModel(get(), get(), get()) }
-    viewModel { params -> PlayerViewModel(params.get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { params -> PlayerViewModel(params.get(), get(), get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get()) }
     viewModel { params -> ViewerViewModel(params.get(), androidContext(), get(), get(), get(), get(), get()) }
     viewModel { PodcastSearchViewModel(get()) }
