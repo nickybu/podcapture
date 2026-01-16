@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -23,6 +25,15 @@ android {
         ksp {
             arg("room.schemaLocation", "$projectDir/schemas")
         }
+
+        // Podcast Index API credentials from local.properties
+        val localProperties = Properties()
+        val localPropertiesFile = rootProject.file("local.properties")
+        if (localPropertiesFile.exists()) {
+            localProperties.load(localPropertiesFile.inputStream())
+        }
+        buildConfigField("String", "PODCAST_INDEX_API_KEY", "\"${localProperties.getProperty("PODCAST_INDEX_API_KEY", "")}\"")
+        buildConfigField("String", "PODCAST_INDEX_API_SECRET", "\"${localProperties.getProperty("PODCAST_INDEX_API_SECRET", "")}\"")
     }
 
     buildTypes {
@@ -46,6 +57,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {
@@ -94,6 +106,12 @@ dependencies {
 
     // Koin DI
     implementation(libs.bundles.koin)
+
+    // Networking (Retrofit + OkHttp)
+    implementation(libs.bundles.networking)
+
+    // Image Loading
+    implementation(libs.coil.compose)
 
     // Vosk Speech Recognition
     implementation(libs.vosk.android)

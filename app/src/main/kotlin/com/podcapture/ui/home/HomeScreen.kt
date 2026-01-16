@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -74,6 +75,7 @@ import java.util.Locale
 fun HomeScreen(
     onNavigateToPlayer: (audioFileId: String) -> Unit,
     onNavigateToSettings: () -> Unit,
+    onNavigateToPodcastSearch: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = koinViewModel()
 ) {
@@ -115,6 +117,9 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("PodCapture") },
                 actions = {
+                    IconButton(onClick = onNavigateToPodcastSearch) {
+                        Icon(Icons.Default.Podcasts, contentDescription = "Search Podcasts")
+                    }
                     IconButton(onClick = onNavigateToSettings) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings")
                     }

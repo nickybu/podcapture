@@ -13,6 +13,8 @@ import com.podcapture.transcription.VoskModelManager
 import com.podcapture.transcription.VoskTranscriptionService
 import com.podcapture.ui.home.HomeViewModel
 import com.podcapture.ui.player.PlayerViewModel
+import com.podcapture.ui.search.PodcastDetailViewModel
+import com.podcapture.ui.search.PodcastSearchViewModel
 import com.podcapture.ui.settings.SettingsViewModel
 import com.podcapture.ui.viewer.ViewerViewModel
 import org.koin.android.ext.koin.androidContext
@@ -53,4 +55,6 @@ val appModule = module {
     viewModel { params -> PlayerViewModel(params.get(), get(), get(), get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get()) }
     viewModel { params -> ViewerViewModel(params.get(), androidContext(), get(), get(), get(), get(), get()) }
+    viewModel { PodcastSearchViewModel(get()) }
+    viewModel { params -> PodcastDetailViewModel(params.get(), get()) }
 }

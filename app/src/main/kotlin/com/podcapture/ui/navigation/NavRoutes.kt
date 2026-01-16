@@ -15,4 +15,10 @@ sealed interface NavRoute {
 
     @Serializable
     data object Settings : NavRoute
+
+    @Serializable
+    data object PodcastSearch : NavRoute
+
+    @Serializable
+    data class PodcastDetail(val podcastId: Long) : NavRoute
 }

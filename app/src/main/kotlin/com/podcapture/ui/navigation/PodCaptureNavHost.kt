@@ -30,6 +30,8 @@ import com.podcapture.data.settings.SettingsDataStore
 import com.podcapture.ui.components.MiniPlayer
 import com.podcapture.ui.home.HomeScreen
 import com.podcapture.ui.player.PlayerScreen
+import com.podcapture.ui.search.PodcastDetailScreen
+import com.podcapture.ui.search.PodcastSearchScreen
 import com.podcapture.ui.settings.SettingsScreen
 import com.podcapture.ui.viewer.ViewerScreen
 import org.koin.compose.koinInject
@@ -97,6 +99,9 @@ fun PodCaptureNavHost(
                     },
                     onNavigateToSettings = {
                         navController.navigate(NavRoute.Settings)
+                    },
+                    onNavigateToPodcastSearch = {
+                        navController.navigate(NavRoute.PodcastSearch)
                     }
                 )
             }
@@ -133,6 +138,28 @@ fun PodCaptureNavHost(
             composable<NavRoute.Settings> {
                 SettingsScreen(
                     onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable<NavRoute.PodcastSearch> {
+                PodcastSearchScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onPodcastSelected = { podcastId ->
+                        navController.navigate(NavRoute.PodcastDetail(podcastId))
+                    }
+                )
+            }
+
+            composable<NavRoute.PodcastDetail> { backStackEntry ->
+                val detail = backStackEntry.toRoute<NavRoute.PodcastDetail>()
+                PodcastDetailScreen(
+                    podcastId = detail.podcastId,
+                    onNavigateBack = { navController.popBackStack() },
+                    onEpisodeSelected = { episode ->
+                        // Add the episode as an audio file and navigate to player
+                        // For now, we'll handle this through the repository
+                        // The episode audioUrl can be loaded directly by the player
+                    }
                 )
             }
         }
