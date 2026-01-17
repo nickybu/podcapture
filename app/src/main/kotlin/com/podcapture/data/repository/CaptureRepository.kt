@@ -46,6 +46,36 @@ class CaptureRepository(
         return capture
     }
 
+    /**
+     * Create a capture for a podcast episode.
+     * Uses a virtual audioFileId of "episode_{episodeId}".
+     */
+    suspend fun createEpisodeCapture(
+        episodeId: Long,
+        episodeTitle: String,
+        timestampMs: Long,
+        windowStartMs: Long,
+        windowEndMs: Long,
+        transcription: String
+    ): Capture {
+        val virtualAudioFileId = "episode_$episodeId"
+
+        val capture = Capture(
+            id = UUID.randomUUID().toString(),
+            audioFileId = virtualAudioFileId,
+            timestampMs = timestampMs,
+            windowStartMs = windowStartMs,
+            windowEndMs = windowEndMs,
+            transcription = transcription,
+            createdAt = System.currentTimeMillis()
+        )
+
+        // Save to database
+        captureDao.insertCapture(capture)
+
+        return capture
+    }
+
     suspend fun deleteCapture(captureId: String, audioFile: AudioFile) {
         captureDao.deleteCapture(captureId)
 
@@ -69,6 +99,14 @@ class CaptureRepository(
         // Update markdown file with new notes
         val allCaptures = captureDao.getCapturesForFileOnce(audioFile.id)
         markdownManager.updateMarkdownFile(audioFile, allCaptures)
+    }
+
+    /**
+     * Updates capture notes without updating markdown file.
+     * Used when AudioFile is not available (e.g., podcast episodes without AudioFile entry).
+     */
+    suspend fun updateCaptureNotesSimple(captureId: String, notes: String?) {
+        captureDao.updateNotes(captureId, notes)
     }
 
     fun getMarkdownContent(audioFile: AudioFile): String? =

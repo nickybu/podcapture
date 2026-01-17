@@ -141,7 +141,13 @@ class AudioPlayerService(
         positionUpdateJob = null
     }
 
-    fun loadAudio(uri: Uri, audioFileId: String? = null, mimeType: String? = null, title: String? = null) {
+    fun loadAudio(
+        uri: Uri,
+        audioFileId: String? = null,
+        mimeType: String? = null,
+        title: String? = null,
+        artist: String? = null
+    ) {
         currentUri = uri
         _currentAudioFileId.value = audioFileId
         _playbackState.value = _playbackState.value.copy(playerState = PlayerState.LOADING)
@@ -149,7 +155,7 @@ class AudioPlayerService(
         mediaController?.let { controller ->
             val metadata = MediaMetadata.Builder()
                 .setTitle(title ?: "PodCapture")
-                .setArtist("PodCapture")
+                .setArtist(artist ?: "PodCapture")
                 .build()
 
             val mediaItem = MediaItem.Builder()

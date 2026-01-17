@@ -11,8 +11,7 @@ import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.repository.CaptureRepository
 import com.podcapture.data.settings.SettingsDataStore
 import com.podcapture.transcription.ModelState
-import com.podcapture.transcription.VoskModelManager
-import com.podcapture.transcription.VoskTranscriptionService
+import com.podcapture.transcription.TranscriptionService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,7 +30,8 @@ data class PlayerUiState(
     val modelState: ModelState = ModelState.NotDownloaded,
     val activeCapture: Capture? = null,
     val activeCaptureIndex: Int = 0,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val isBookmarked: Boolean = false
 )
 
 class PlayerViewModel(
@@ -40,8 +40,7 @@ class PlayerViewModel(
     private val captureRepository: CaptureRepository,
     private val audioPlayerService: AudioPlayerService,
     private val settingsDataStore: SettingsDataStore,
-    private val voskModelManager: VoskModelManager,
-    private val transcriptionService: VoskTranscriptionService
+    private val transcriptionService: TranscriptionService
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PlayerUiState())
@@ -65,7 +64,8 @@ class PlayerViewModel(
                     val isFirstLoad = _uiState.value.audioFile == null
                     _uiState.value = _uiState.value.copy(
                         audioFile = it,
-                        isLoading = false
+                        isLoading = false,
+                        isBookmarked = it.isBookmarked
                     )
 
                     if (isFirstLoad) {
@@ -169,7 +169,7 @@ class PlayerViewModel(
 
     private fun observeModelState() {
         viewModelScope.launch {
-            voskModelManager.modelState.collect { state ->
+            transcriptionService.modelState.collect { state ->
                 _uiState.value = _uiState.value.copy(modelState = state)
             }
         }
@@ -215,11 +215,11 @@ class PlayerViewModel(
                 val windowEnd = (currentPosition + windowMs).coerceAtMost(duration)
 
                 // Ensure model is downloaded
-                if (!voskModelManager.isModelReady()) {
+                if (!transcriptionService.isModelReady()) {
                     _uiState.value = _uiState.value.copy(
                         captureProgress = "Downloading speech model..."
                     )
-                    val downloaded = voskModelManager.ensureModelDownloaded()
+                    val downloaded = transcriptionService.ensureModelReady()
                     if (!downloaded) {
                         throw IllegalStateException("Failed to download speech recognition model")
                     }
@@ -266,6 +266,13 @@ class PlayerViewModel(
 
     fun onCaptureErrorDismissed() {
         _uiState.value = _uiState.value.copy(captureError = null)
+    }
+
+    fun onToggleBookmark() {
+        viewModelScope.launch {
+            audioFileRepository.toggleBookmark(audioFileId)
+            // State will update via the collect in loadAudioFile
+        }
     }
 
     fun savePlaybackPosition() {

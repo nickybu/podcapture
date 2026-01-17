@@ -14,6 +14,7 @@ data class SettingsUiState(
     val obsidianVaultUri: String = "",
     val obsidianVaultDisplayName: String = "",
     val obsidianDefaultTags: String = "inbox/, resources/references/podcasts",
+    val apiCallCount: Int = 0,
     val isLoading: Boolean = true
 )
 
@@ -55,6 +56,13 @@ class SettingsViewModel(
             settingsDataStore.obsidianDefaultTags.collect { tags ->
                 _uiState.value = _uiState.value.copy(
                     obsidianDefaultTags = tags
+                )
+            }
+        }
+        viewModelScope.launch {
+            settingsDataStore.apiCallCount.collect { count ->
+                _uiState.value = _uiState.value.copy(
+                    apiCallCount = count
                 )
             }
         }

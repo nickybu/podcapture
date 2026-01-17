@@ -29,7 +29,10 @@ import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.settings.SettingsDataStore
 import com.podcapture.ui.components.MiniPlayer
 import com.podcapture.ui.home.HomeScreen
+import com.podcapture.ui.player.EpisodePlayerScreen
 import com.podcapture.ui.player.PlayerScreen
+import com.podcapture.ui.search.PodcastDetailScreen
+import com.podcapture.ui.search.PodcastSearchScreen
 import com.podcapture.ui.settings.SettingsScreen
 import com.podcapture.ui.viewer.ViewerScreen
 import org.koin.compose.koinInject
@@ -97,6 +100,15 @@ fun PodCaptureNavHost(
                     },
                     onNavigateToSettings = {
                         navController.navigate(NavRoute.Settings)
+                    },
+                    onNavigateToPodcastSearch = {
+                        navController.navigate(NavRoute.PodcastSearch)
+                    },
+                    onNavigateToPodcastDetail = { podcastId ->
+                        navController.navigate(NavRoute.PodcastDetail(podcastId))
+                    },
+                    onNavigateToEpisodePlayer = { episodeId, podcastId ->
+                        navController.navigate(NavRoute.EpisodePlayer(episodeId, podcastId))
                     }
                 )
             }
@@ -122,9 +134,22 @@ fun PodCaptureNavHost(
                     onNavigateToTimestamp = { audioFileId, timestampMs ->
                         // Pop back to player and navigate with seek position
                         navController.popBackStack()
-                        navController.navigate(NavRoute.Player(audioFileId, seekToMs = timestampMs)) {
-                            // Replace the current player instance
-                            popUpTo(NavRoute.Home) { inclusive = false }
+
+                        // Check if this is an episode capture
+                        if (audioFileId.startsWith("episode_")) {
+                            // Extract episodeId from "episode_{id}" format
+                            val episodeId = audioFileId.removePrefix("episode_").toLongOrNull()
+                            if (episodeId != null) {
+                                // Navigate to episode player with seek position
+                                // Note: podcastId will be fetched by the ViewModel
+                                navController.navigate(NavRoute.EpisodePlayer(episodeId, 0L, seekToMs = timestampMs)) {
+                                    popUpTo(NavRoute.Home) { inclusive = false }
+                                }
+                            }
+                        } else {
+                            navController.navigate(NavRoute.Player(audioFileId, seekToMs = timestampMs)) {
+                                popUpTo(NavRoute.Home) { inclusive = false }
+                            }
                         }
                     }
                 )
@@ -133,6 +158,39 @@ fun PodCaptureNavHost(
             composable<NavRoute.Settings> {
                 SettingsScreen(
                     onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable<NavRoute.PodcastSearch> {
+                PodcastSearchScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onPodcastSelected = { podcastId ->
+                        navController.navigate(NavRoute.PodcastDetail(podcastId))
+                    }
+                )
+            }
+
+            composable<NavRoute.PodcastDetail> { backStackEntry ->
+                val detail = backStackEntry.toRoute<NavRoute.PodcastDetail>()
+                PodcastDetailScreen(
+                    podcastId = detail.podcastId,
+                    onNavigateBack = { navController.popBackStack() },
+                    onEpisodeSelected = { episode ->
+                        navController.navigate(NavRoute.EpisodePlayer(episode.id, episode.podcastId))
+                    }
+                )
+            }
+
+            composable<NavRoute.EpisodePlayer> { backStackEntry ->
+                val player = backStackEntry.toRoute<NavRoute.EpisodePlayer>()
+                EpisodePlayerScreen(
+                    episodeId = player.episodeId,
+                    podcastId = player.podcastId,
+                    seekToMs = player.seekToMs,
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToViewer = { audioFileId, captureId ->
+                        navController.navigate(NavRoute.Viewer(audioFileId, captureId))
+                    }
                 )
             }
         }
@@ -163,7 +221,15 @@ fun PodCaptureNavHost(
                 onCapture = { captureManager.capture() },
                 onClick = {
                     currentAudioFileId?.let { id ->
-                        navController.navigate(NavRoute.Player(id))
+                        // Navigate to the appropriate player based on ID type
+                        if (id.startsWith("episode_")) {
+                            val episodeId = id.removePrefix("episode_").toLongOrNull()
+                            if (episodeId != null) {
+                                navController.navigate(NavRoute.EpisodePlayer(episodeId, 0L))
+                            }
+                        } else {
+                            navController.navigate(NavRoute.Player(id))
+                        }
                     }
                 }
             )

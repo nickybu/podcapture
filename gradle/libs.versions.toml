@@ -36,8 +36,15 @@ datetime = "0.6.1"
 # DI - Koin
 koin = "4.0.0"
 
-# Vosk
-vosk = "0.3.47"
+# Networking
+retrofit = "2.11.0"
+okhttp = "4.12.0"
+
+# Image Loading
+coil = "2.7.0"
+
+# Sherpa ONNX (Whisper support for Android)
+sherpaOnnx = "6.25.12"
 
 [libraries]
 # AndroidX Core
@@ -88,8 +95,17 @@ kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime",
 koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = "koin" }
 koin-androidx-compose = { group = "io.insert-koin", name = "koin-androidx-compose", version.ref = "koin" }
 
-# Vosk
-vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
+# Networking
+retrofit-core = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+retrofit-converter-serialization = { group = "com.squareup.retrofit2", name = "converter-kotlinx-serialization", version.ref = "retrofit" }
+okhttp-core = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+
+# Image Loading
+coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+
+# Sherpa ONNX (Whisper for Android)
+sherpa-onnx = { group = "com.bihe0832.android", name = "lib-sherpa-onnx", version.ref = "sherpaOnnx" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -122,4 +138,10 @@ coroutines = [
 koin = [
     "koin-android",
     "koin-androidx-compose",
+]
+networking = [
+    "retrofit-core",
+    "retrofit-converter-serialization",
+    "okhttp-core",
+    "okhttp-logging",
 ]

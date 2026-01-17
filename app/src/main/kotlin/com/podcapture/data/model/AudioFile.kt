@@ -15,5 +15,7 @@ data class AudioFile(
     val lastPlayedAt: Long? = null,    // Epoch millis, updated on each play
     val lastPositionMs: Long = 0,      // Resume position
     val addedAt: Long,                 // Epoch millis when added
-    val playCount: Int = 0             // Number of times played
+    val playCount: Int = 0,            // Number of times played
+    val isBookmarked: Boolean = false, // Whether the file is bookmarked
+    val bookmarkedAt: Long? = null     // Epoch millis when bookmarked
 )

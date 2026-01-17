@@ -66,4 +66,21 @@ class AudioFileRepository(
     suspend fun deleteFile(id: String) {
         audioFileDao.deleteFile(id)
     }
+
+    // Bookmark methods
+    val bookmarkedFiles: Flow<List<AudioFile>> = audioFileDao.getBookmarkedFiles()
+
+    suspend fun getBookmarkedFilesOnce(): List<AudioFile> = audioFileDao.getBookmarkedFilesOnce()
+
+    suspend fun toggleBookmark(id: String) {
+        val file = audioFileDao.getFileById(id) ?: return
+        val newBookmarkState = !file.isBookmarked
+        val bookmarkedAt = if (newBookmarkState) System.currentTimeMillis() else null
+        audioFileDao.updateBookmarkStatus(id, newBookmarkState, bookmarkedAt)
+    }
+
+    suspend fun setBookmarked(id: String, isBookmarked: Boolean) {
+        val bookmarkedAt = if (isBookmarked) System.currentTimeMillis() else null
+        audioFileDao.updateBookmarkStatus(id, isBookmarked, bookmarkedAt)
+    }
 }

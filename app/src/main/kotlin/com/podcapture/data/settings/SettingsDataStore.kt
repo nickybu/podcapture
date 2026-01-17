@@ -19,6 +19,8 @@ class SettingsDataStore(private val context: Context) {
         private val SKIP_INTERVAL_SECONDS = intPreferencesKey("skip_interval_seconds")
         private val OBSIDIAN_VAULT_URI = stringPreferencesKey("obsidian_vault_uri")
         private val OBSIDIAN_DEFAULT_TAGS = stringPreferencesKey("obsidian_default_tags")
+        private val API_CALL_COUNT = intPreferencesKey("api_call_count")
+        private val API_CALL_COUNT_DATE = stringPreferencesKey("api_call_count_date")
         const val DEFAULT_CAPTURE_WINDOW = 30
         const val DEFAULT_SKIP_INTERVAL = 10
         const val DEFAULT_OBSIDIAN_TAGS = "inbox/, resources/references/podcasts"
@@ -43,6 +45,47 @@ class SettingsDataStore(private val context: Context) {
         .map { preferences ->
             preferences[OBSIDIAN_DEFAULT_TAGS] ?: DEFAULT_OBSIDIAN_TAGS
         }
+
+    val apiCallCount: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                .format(java.util.Date())
+            val storedDate = preferences[API_CALL_COUNT_DATE] ?: ""
+            if (storedDate == today) {
+                preferences[API_CALL_COUNT] ?: 0
+            } else {
+                0 // Reset count for new day
+            }
+        }
+
+    val apiCallCountDate: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[API_CALL_COUNT_DATE] ?: ""
+        }
+
+    suspend fun incrementApiCallCount() {
+        context.dataStore.edit { preferences ->
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                .format(java.util.Date())
+            val storedDate = preferences[API_CALL_COUNT_DATE] ?: ""
+
+            if (storedDate == today) {
+                preferences[API_CALL_COUNT] = (preferences[API_CALL_COUNT] ?: 0) + 1
+            } else {
+                // New day, reset counter
+                preferences[API_CALL_COUNT] = 1
+                preferences[API_CALL_COUNT_DATE] = today
+            }
+        }
+    }
+
+    suspend fun resetApiCallCount() {
+        context.dataStore.edit { preferences ->
+            preferences[API_CALL_COUNT] = 0
+            preferences[API_CALL_COUNT_DATE] = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                .format(java.util.Date())
+        }
+    }
 
     suspend fun setCaptureWindowSeconds(seconds: Int) {
         context.dataStore.edit { preferences ->
