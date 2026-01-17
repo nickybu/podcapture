@@ -18,6 +18,14 @@ class AudioExtractor(private val context: Context) {
         val sampleRate: Int
     )
 
+    companion object {
+        private const val TAG = "AudioExtractor"
+        // Buffer margin to account for seek imprecision and decoder delays
+        // MP3/AAC frames can be ~26ms each, and decoders may buffer several frames
+        private const val SEEK_MARGIN_MS = 2000L  // 2 seconds before start
+        private const val END_MARGIN_MS = 2000L   // 2 seconds after end
+    }
+
     suspend fun extractSegment(
         uri: Uri,
         startMs: Long,
@@ -41,24 +49,37 @@ class AudioExtractor(private val context: Context) {
             val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
 
+            android.util.Log.d(TAG, "Audio format: $mime, sampleRate=$sampleRate, channels=$channelCount")
+
             // Create decoder
             decoder = MediaCodec.createDecoderByType(mime)
             decoder.configure(format, null, null, 0)
             decoder.start()
 
-            // Seek to BEFORE the start position to ensure we don't miss content
-            // SEEK_TO_PREVIOUS_SYNC finds the sync frame at or before the target
+            // Target window in microseconds
             val startUs = startMs * 1000L
             val endUs = endMs * 1000L
-            extractor.seekTo(startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+
+            // Add margins for seeking and decoder buffering
+            // We'll extract more than needed, then trim precisely to the target window
+            val seekTargetUs = ((startMs - SEEK_MARGIN_MS) * 1000L).coerceAtLeast(0L)
+            val inputEndUs = (endMs + END_MARGIN_MS) * 1000L
+
+            android.util.Log.d(TAG, "Target window: ${startMs}ms - ${endMs}ms")
+            android.util.Log.d(TAG, "Extraction window with margins: ${seekTargetUs/1000}ms - ${inputEndUs/1000}ms")
+
+            extractor.seekTo(seekTargetUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
+            android.util.Log.d(TAG, "Seeked to: ${extractor.sampleTime / 1000}ms")
 
             val outputStream = ByteArrayOutputStream()
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
+            var inputSamplesCount = 0
+            var outputBuffersCount = 0
 
             while (!outputDone) {
-                // Feed input
+                // Feed input - continue until well past the end time to ensure decoder outputs everything
                 if (!inputDone) {
                     val inputBufferIndex = decoder.dequeueInputBuffer(10000)
                     if (inputBufferIndex >= 0) {
@@ -66,18 +87,20 @@ class AudioExtractor(private val context: Context) {
                         val sampleSize = extractor.readSampleData(inputBuffer, 0)
                         val sampleTimeUs = extractor.sampleTime
 
-                        if (sampleSize < 0 || sampleTimeUs > endUs) {
+                        if (sampleSize < 0 || sampleTimeUs > inputEndUs) {
                             decoder.queueInputBuffer(
                                 inputBufferIndex, 0, 0, 0,
                                 MediaCodec.BUFFER_FLAG_END_OF_STREAM
                             )
                             inputDone = true
+                            android.util.Log.d(TAG, "Input done after $inputSamplesCount samples, last time: ${sampleTimeUs/1000}ms")
                         } else {
                             decoder.queueInputBuffer(
                                 inputBufferIndex, 0, sampleSize,
                                 sampleTimeUs, 0
                             )
                             extractor.advance()
+                            inputSamplesCount++
                         }
                     }
                 }
@@ -87,14 +110,21 @@ class AudioExtractor(private val context: Context) {
                 if (outputBufferIndex >= 0) {
                     if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
                         outputDone = true
+                        android.util.Log.d(TAG, "Output done after $outputBuffersCount buffers")
                     } else {
                         val outputBuffer = decoder.getOutputBuffer(outputBufferIndex)!!
+                        outputBuffersCount++
 
                         // Use the presentation timestamp from the decoder
                         val bufferStartTimeUs = bufferInfo.presentationTimeUs
                         val samplesInBuffer = bufferInfo.size / (2 * channelCount)
                         val bufferDurationUs = (samplesInBuffer * 1_000_000L) / sampleRate
                         val bufferEndTimeUs = bufferStartTimeUs + bufferDurationUs
+
+                        // Log first and last few buffers for debugging
+                        if (outputBuffersCount <= 3 || (inputDone && outputBuffersCount % 10 == 0)) {
+                            android.util.Log.d(TAG, "Output buffer #$outputBuffersCount: ${bufferStartTimeUs/1000}ms - ${bufferEndTimeUs/1000}ms (${bufferInfo.size} bytes)")
+                        }
 
                         // Only include samples that fall within our target window
                         if (bufferEndTimeUs >= startUs && bufferStartTimeUs <= endUs) {
@@ -117,6 +147,10 @@ class AudioExtractor(private val context: Context) {
             // Convert to mono 16kHz if needed for Whisper
             val rawPcm = outputStream.toByteArray()
             val convertedPcm = convertToMono16kHz(rawPcm, sampleRate, channelCount)
+
+            // Log final audio duration
+            val finalDurationMs = (convertedPcm.size / 2) * 1000L / 16000  // 16-bit mono at 16kHz
+            android.util.Log.d(TAG, "Final audio: ${convertedPcm.size} bytes = ${finalDurationMs}ms (target: ${endMs - startMs}ms)")
 
             AudioSegment(convertedPcm, 16000)
 

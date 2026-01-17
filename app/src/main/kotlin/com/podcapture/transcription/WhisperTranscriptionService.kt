@@ -22,6 +22,9 @@ class WhisperTranscriptionService(
 
     companion object {
         private const val TAG = "WhisperTranscription"
+        // Whisper processes audio in ~30 second chunks
+        // Use 28 seconds to leave some buffer and avoid edge issues
+        private const val CHUNK_DURATION_SAMPLES = 28 * 16000  // 28 seconds at 16kHz
     }
 
     override val modelState: StateFlow<ModelState>
@@ -61,21 +64,40 @@ class WhisperTranscriptionService(
                 return@withContext "[No audio data to transcribe]"
             }
 
-            Log.d(TAG, "Transcribing ${floatSamples.size} samples at ${segment.sampleRate}Hz")
+            val totalDurationSec = floatSamples.size / segment.sampleRate
+            Log.d(TAG, "Transcribing ${floatSamples.size} samples (${totalDurationSec}s) at ${segment.sampleRate}Hz")
 
-            // Create stream and feed audio
-            val stream = recognizer.createStream()
-            stream.acceptWaveform(floatSamples, segment.sampleRate)
+            // Process audio in chunks to handle Whisper's ~30 second context window
+            val transcriptionParts = mutableListOf<String>()
+            var offset = 0
+            var chunkIndex = 0
 
-            // Decode and get result
-            recognizer.decode(stream)
-            val result = recognizer.getResult(stream)
-            stream.release()
+            while (offset < floatSamples.size) {
+                val chunkEnd = minOf(offset + CHUNK_DURATION_SAMPLES, floatSamples.size)
+                val chunk = floatSamples.copyOfRange(offset, chunkEnd)
 
-            val text = result.text.trim()
-            Log.d(TAG, "Transcription result: $text")
+                Log.d(TAG, "Processing chunk ${chunkIndex + 1}: samples $offset-$chunkEnd (${chunk.size / 16000}s)")
 
-            text.ifEmpty { "[No speech detected]" }
+                val stream = recognizer.createStream()
+                stream.acceptWaveform(chunk, segment.sampleRate)
+                recognizer.decode(stream)
+                val result = recognizer.getResult(stream)
+                stream.release()
+
+                val chunkText = result.text.trim()
+                if (chunkText.isNotEmpty()) {
+                    transcriptionParts.add(chunkText)
+                    Log.d(TAG, "Chunk ${chunkIndex + 1} result: $chunkText")
+                }
+
+                offset = chunkEnd
+                chunkIndex++
+            }
+
+            val fullText = transcriptionParts.joinToString(" ").trim()
+            Log.d(TAG, "Full transcription (${transcriptionParts.size} chunks): $fullText")
+
+            fullText.ifEmpty { "[No speech detected]" }
 
         } catch (e: Exception) {
             Log.e(TAG, "Transcription failed", e)
