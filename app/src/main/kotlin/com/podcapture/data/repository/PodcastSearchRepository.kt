@@ -4,15 +4,22 @@ import com.podcapture.data.api.PodcastIndexApi
 import com.podcapture.data.model.Episode
 import com.podcapture.data.model.Podcast
 import com.podcapture.data.model.toDomain
+import com.podcapture.data.settings.SettingsDataStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 class PodcastSearchRepository(
-    private val api: PodcastIndexApi
+    private val api: PodcastIndexApi,
+    private val settingsDataStore: SettingsDataStore
 ) {
+    private suspend fun trackApiCall() {
+        settingsDataStore.incrementApiCallCount()
+    }
+
     suspend fun searchPodcasts(query: String, maxResults: Int = 20): Result<List<Podcast>> {
         return withContext(Dispatchers.IO) {
             try {
+                trackApiCall()
                 val response = api.searchPodcasts(query, maxResults)
                 if (response.status == "true") {
                     Result.success(response.feeds.map { it.toDomain() })
@@ -28,6 +35,7 @@ class PodcastSearchRepository(
     suspend fun searchByTitle(query: String, maxResults: Int = 20): Result<List<Podcast>> {
         return withContext(Dispatchers.IO) {
             try {
+                trackApiCall()
                 val response = api.searchByTitle(query, maxResults)
                 if (response.status == "true") {
                     Result.success(response.feeds.map { it.toDomain() })
@@ -43,6 +51,7 @@ class PodcastSearchRepository(
     suspend fun getPodcastById(id: Long): Result<Podcast> {
         return withContext(Dispatchers.IO) {
             try {
+                trackApiCall()
                 val response = api.getPodcastById(id)
                 if (response.status == "true" && response.feed != null) {
                     Result.success(response.feed.toDomain())
@@ -55,10 +64,14 @@ class PodcastSearchRepository(
         }
     }
 
-    suspend fun getEpisodesByPodcastId(podcastId: Long, maxResults: Int = 50): Result<List<Episode>> {
+    suspend fun getEpisodesByPodcastId(
+        podcastId: Long,
+        maxResults: Int = 50
+    ): Result<List<Episode>> {
         return withContext(Dispatchers.IO) {
             try {
-                val response = api.getEpisodesByPodcastId(podcastId, maxResults)
+                trackApiCall()
+                val response = api.getEpisodesByPodcastId(podcastId, maxResults, fulltext = true)
                 if (response.status == "true") {
                     Result.success(response.items.map { it.toDomain() })
                 } else {
@@ -73,6 +86,7 @@ class PodcastSearchRepository(
     suspend fun getEpisodeById(id: Long): Result<Episode> {
         return withContext(Dispatchers.IO) {
             try {
+                trackApiCall()
                 val response = api.getEpisodeById(id)
                 if (response.status == "true" && response.items.isNotEmpty()) {
                     Result.success(response.items.first().toDomain())
@@ -88,6 +102,7 @@ class PodcastSearchRepository(
     suspend fun getRecentEpisodes(maxResults: Int = 20): Result<List<Episode>> {
         return withContext(Dispatchers.IO) {
             try {
+                trackApiCall()
                 val response = api.getRecentEpisodes(maxResults)
                 if (response.status == "true") {
                     Result.success(response.items.map { it.toDomain() })

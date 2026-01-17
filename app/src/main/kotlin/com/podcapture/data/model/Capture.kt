@@ -1,20 +1,12 @@
 package com.podcapture.data.model
 
 import androidx.room.Entity
-import androidx.room.ForeignKey
 import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "captures",
-    foreignKeys = [
-        ForeignKey(
-            entity = AudioFile::class,
-            parentColumns = ["id"],
-            childColumns = ["audioFileId"],
-            onDelete = ForeignKey.CASCADE
-        )
-    ],
+    // No foreign key - audioFileId can reference either AudioFile.id or "episode_{episodeId}" for podcasts
     indices = [Index(value = ["audioFileId"])]
 )
 data class Capture(

@@ -50,4 +50,14 @@ interface AudioFileDao {
 
     @Query("SELECT COUNT(*) FROM audio_files")
     suspend fun getFileCount(): Int
+
+    // Bookmark methods
+    @Query("SELECT * FROM audio_files WHERE isBookmarked = 1 ORDER BY bookmarkedAt DESC")
+    fun getBookmarkedFiles(): Flow<List<AudioFile>>
+
+    @Query("SELECT * FROM audio_files WHERE isBookmarked = 1 ORDER BY bookmarkedAt DESC")
+    suspend fun getBookmarkedFilesOnce(): List<AudioFile>
+
+    @Query("UPDATE audio_files SET isBookmarked = :isBookmarked, bookmarkedAt = :bookmarkedAt WHERE id = :id")
+    suspend fun updateBookmarkStatus(id: String, isBookmarked: Boolean, bookmarkedAt: Long?)
 }

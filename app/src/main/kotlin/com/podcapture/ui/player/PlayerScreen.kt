@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Add
@@ -121,6 +122,16 @@ fun PlayerScreen(
                     }
                 },
                 actions = {
+                    // Bookmark button
+                    IconButton(onClick = { viewModel.onToggleBookmark() }) {
+                        Icon(
+                            imageVector = if (uiState.isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
+                            contentDescription = if (uiState.isBookmarked) "Remove bookmark" else "Add bookmark",
+                            tint = if (uiState.isBookmarked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+
+                    // Captures button
                     if (uiState.captures.isNotEmpty()) {
                         TextButton(onClick = { onNavigateToViewer(audioFileId, null) }) {
                             Icon(

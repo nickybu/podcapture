@@ -7,6 +7,7 @@ data class Episode(
     val podcastId: Long,
     val title: String,
     val description: String,
+    val link: String?,  // URL to episode's webpage with full show notes
     val publishedDate: Long,
     val duration: Int,
     val audioUrl: String,
@@ -23,6 +24,7 @@ fun EpisodeDto.toDomain(): Episode {
         podcastId = feedId,
         title = title,
         description = description ?: "",
+        link = link,
         publishedDate = datePublished ?: 0L,
         duration = duration ?: 0,
         audioUrl = enclosureUrl ?: "",

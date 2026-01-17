@@ -43,8 +43,8 @@ okhttp = "4.12.0"
 # Image Loading
 coil = "2.7.0"
 
-# Vosk
-vosk = "0.3.47"
+# Sherpa ONNX (Whisper support for Android)
+sherpaOnnx = "6.25.12"
 
 [libraries]
 # AndroidX Core
@@ -104,8 +104,8 @@ okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor",
 # Image Loading
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 
-# Vosk
-vosk-android = { group = "com.alphacephei", name = "vosk-android", version.ref = "vosk" }
+# Sherpa ONNX (Whisper for Android)
+sherpa-onnx = { group = "com.bihe0832.android", name = "lib-sherpa-onnx", version.ref = "sherpaOnnx" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -112,8 +112,8 @@ fun ViewerScreen(
                     }
                 },
                 actions = {
-                    // Obsidian export button - always visible if file is loaded
-                    if (uiState.audioFile != null) {
+                    // Obsidian export button - show when there are captures
+                    if (uiState.captures.isNotEmpty()) {
                         IconButton(
                             onClick = { viewModel.onOpenObsidianDialog() }
                         ) {
@@ -125,21 +125,32 @@ fun ViewerScreen(
                             )
                         }
                     }
-                    // Share button - only when markdown file exists
-                    if (uiState.markdownFilePath != null) {
+                    // Share button
+                    if (uiState.captures.isNotEmpty()) {
                         IconButton(
                             onClick = {
-                                val file = File(uiState.markdownFilePath!!)
-                                if (file.exists()) {
-                                    val uri = FileProvider.getUriForFile(
-                                        context,
-                                        "${context.packageName}.fileprovider",
-                                        file
-                                    )
+                                if (uiState.markdownFilePath != null) {
+                                    // Share markdown file for audio files
+                                    val file = File(uiState.markdownFilePath!!)
+                                    if (file.exists()) {
+                                        val uri = FileProvider.getUriForFile(
+                                            context,
+                                            "${context.packageName}.fileprovider",
+                                            file
+                                        )
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/markdown"
+                                            putExtra(Intent.EXTRA_STREAM, uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share captures"))
+                                    }
+                                } else {
+                                    // Share Obsidian-formatted content as text for episodes
+                                    val content = viewModel.getObsidianContent()
                                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/markdown"
-                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        type = "text/plain"
+                                        putExtra(Intent.EXTRA_TEXT, content)
                                     }
                                     context.startActivity(Intent.createChooser(shareIntent, "Share captures"))
                                 }
@@ -186,21 +197,25 @@ fun ViewerScreen(
             ) {
                 // Header with file info
                 item {
-                    uiState.audioFile?.let { audioFile ->
-                        Text(
-                            text = audioFile.name,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "${uiState.captures.size} capture(s)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider()
-                        Spacer(modifier = Modifier.height(8.dp))
+                    val audioFile = uiState.audioFile
+                    val title = audioFile?.name ?: if (audioFileId.startsWith("episode_")) {
+                        "Podcast Episode Captures"
+                    } else {
+                        "Captures"
                     }
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "${uiState.captures.size} capture(s)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
                 // Capture cards

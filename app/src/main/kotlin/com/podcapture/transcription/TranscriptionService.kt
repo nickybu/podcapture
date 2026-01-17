@@ -39,11 +39,3 @@ interface TranscriptionService {
      */
     fun release()
 }
-
-/**
- * Available transcription engines.
- */
-enum class TranscriptionEngine {
-    VOSK,
-    WHISPER
-}

@@ -29,7 +29,9 @@ interface PodcastIndexApi {
     @GET("episodes/byfeedid")
     suspend fun getEpisodesByPodcastId(
         @Query("id") podcastId: Long,
-        @Query("max") max: Int = 50
+        @Query("max") max: Int = 100,
+        @Query("since") since: Long? = null,  // Return episodes published after this timestamp
+        @Query("fulltext") fulltext: Boolean? = null  // Return full description text
     ): EpisodesResponse
 
     @GET("episodes/byid")

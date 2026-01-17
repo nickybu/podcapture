@@ -44,6 +44,7 @@ data class EpisodeDto(
     val feedId: Long,
     val title: String,
     val description: String? = null,
+    val link: String? = null,  // URL to episode's webpage with full show notes
     @SerialName("datePublished")
     val datePublished: Long? = null,
     val duration: Int? = null,

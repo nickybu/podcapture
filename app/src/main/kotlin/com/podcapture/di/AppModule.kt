@@ -2,20 +2,20 @@ package com.podcapture.di
 
 import com.podcapture.audio.AudioPlayerService
 import com.podcapture.capture.CaptureManager
+import com.podcapture.download.DownloadManager
 import com.podcapture.data.db.PodCaptureDatabase
 import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.repository.CaptureRepository
 import com.podcapture.data.repository.MarkdownManager
+import com.podcapture.data.repository.PodcastRepository
 import com.podcapture.data.repository.TagRepository
 import com.podcapture.data.settings.SettingsDataStore
 import com.podcapture.transcription.AudioExtractor
-import com.podcapture.transcription.TranscriptionEngine
 import com.podcapture.transcription.TranscriptionService
-import com.podcapture.transcription.VoskModelManager
-import com.podcapture.transcription.VoskTranscriptionService
 import com.podcapture.transcription.WhisperModelManager
 import com.podcapture.transcription.WhisperTranscriptionService
 import com.podcapture.ui.home.HomeViewModel
+import com.podcapture.ui.player.EpisodePlayerViewModel
 import com.podcapture.ui.player.PlayerViewModel
 import com.podcapture.ui.search.PodcastDetailViewModel
 import com.podcapture.ui.search.PodcastSearchViewModel
@@ -31,6 +31,7 @@ val appModule = module {
     single { get<PodCaptureDatabase>().audioFileDao() }
     single { get<PodCaptureDatabase>().captureDao() }
     single { get<PodCaptureDatabase>().tagDao() }
+    single { get<PodCaptureDatabase>().podcastDao() }
 
     // Settings
     single { SettingsDataStore(androidContext()) }
@@ -42,30 +43,31 @@ val appModule = module {
     single { AudioFileRepository(get()) }
     single { CaptureRepository(get(), get()) }
     single { TagRepository(get()) }
+    single { PodcastRepository(androidContext(), get(), get(), get(), get()) }
 
     // Audio player
     single { AudioPlayerService(androidContext()) }
 
-    // Transcription - Model managers
-    single { VoskModelManager(androidContext()) }
+    // Transcription - Whisper via Sherpa-ONNX
     single { WhisperModelManager(androidContext()) }
     single { AudioExtractor(androidContext()) }
+    single { WhisperTranscriptionService(androidContext(), get(), get()) }
 
-    // Transcription services
-    single { VoskTranscriptionService(androidContext(), get<VoskModelManager>(), get()) }
-    single { WhisperTranscriptionService(androidContext(), get<WhisperModelManager>(), get()) }
-
-    // Default transcription service - change to WhisperTranscriptionService when native libs are ready
-    single<TranscriptionService> { get<VoskTranscriptionService>() }
+    // Default transcription service - Whisper for best accuracy
+    single<TranscriptionService> { get<WhisperTranscriptionService>() }
 
     // Capture Manager (for mini player capture)
     single { CaptureManager(get(), get(), get(), get(), get()) }
 
+    // Download Manager
+    single { DownloadManager(androidContext(), get()) }
+
     // ViewModels
-    viewModel { HomeViewModel(get(), get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get()) }
     viewModel { params -> PlayerViewModel(params.get(), get(), get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get()) }
-    viewModel { params -> ViewerViewModel(params.get(), androidContext(), get(), get(), get(), get(), get()) }
+    viewModel { params -> ViewerViewModel(params.get(), androidContext(), get(), get(), get(), get(), get(), get()) }
     viewModel { PodcastSearchViewModel(get()) }
-    viewModel { params -> PodcastDetailViewModel(params.get(), get()) }
+    viewModel { params -> PodcastDetailViewModel(params.get(), get(), get(), get(), get()) }
+    viewModel { params -> EpisodePlayerViewModel(params.get(), params.get(), get(), get(), get(), get(), get(), get(), get()) }
 }

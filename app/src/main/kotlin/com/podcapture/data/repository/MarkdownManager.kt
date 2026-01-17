@@ -177,14 +177,88 @@ class MarkdownManager(
     }
 
     /**
+     * Generates Obsidian-formatted markdown content without requiring an AudioFile.
+     * Used for podcast episode captures.
+     */
+    fun generateObsidianContentSimple(
+        captures: List<Capture>,
+        title: String,
+        userTags: List<String>,
+        defaultTags: String = "inbox/, resources/references/podcasts",
+        firstListenedAt: Long? = null,
+        lastListenedAt: Long? = null
+    ): String {
+        val sb = StringBuilder()
+
+        // Build tags list: default tags + user tags
+        val allTags = defaultTags.split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .toMutableList()
+        allTags.addAll(userTags.filter { it.isNotBlank() })
+
+        // Frontmatter
+        sb.appendLine("---")
+        sb.appendLine("tags:")
+        allTags.forEach { tag ->
+            sb.appendLine("- $tag")
+        }
+        sb.appendLine("author: nicky")
+        sb.appendLine("---")
+        sb.appendLine()
+        sb.appendLine()
+        sb.appendLine()
+        sb.appendLine()
+
+        // Title
+        sb.appendLine("# $title")
+        sb.appendLine()
+        firstListenedAt?.let { sb.appendLine("**First listened:** ${dateFormat.format(Date(it))}") }
+        lastListenedAt?.let { sb.appendLine("**Last listened:** ${dateFormat.format(Date(it))}") }
+        sb.appendLine("**Generated:** ${dateFormat.format(Date())}")
+        sb.appendLine()
+        sb.appendLine("---")
+        sb.appendLine()
+
+        // Captures sorted by timestamp
+        val sortedCaptures = captures.sortedBy { it.timestampMs }
+
+        sortedCaptures.forEachIndexed { index, capture ->
+            sb.appendLine("## Capture ${index + 1} at ${formatDuration(capture.timestampMs)}")
+            sb.appendLine()
+            sb.appendLine("**Window:** ${formatDuration(capture.windowStartMs)} → ${formatDuration(capture.windowEndMs)}")
+            sb.appendLine("**Captured:** ${dateFormat.format(Date(capture.createdAt))}")
+            sb.appendLine()
+
+            // Add notes if present
+            if (!capture.notes.isNullOrBlank()) {
+                sb.appendLine("### Notes")
+                sb.appendLine()
+                sb.appendLine(capture.notes)
+                sb.appendLine()
+            }
+
+            sb.appendLine("### Transcription")
+            sb.appendLine()
+            sb.appendLine("> ${capture.transcription.replace("\n", "\n> ")}")
+            sb.appendLine()
+            sb.appendLine("---")
+            sb.appendLine()
+        }
+
+        return sb.toString()
+    }
+
+    /**
      * Sanitizes a filename by replacing problematic characters with a dash.
      */
     fun sanitizeFilename(name: String): String {
         return name
             .substringBeforeLast(".")  // Remove extension
-            .replace(Regex("[:'\"?!|<>*\\\\]"), "-")  // Replace problematic chars
-            .replace(Regex("-+"), "-")  // Collapse multiple dashes
-            .trim('-')
+            .replace(Regex("[:'\"?!|<>*\\\\#]"), "-")  // Replace problematic chars
+            .replace(Regex("-[\\s-]*-"), "-")  // Collapse dashes with spaces/dashes between them
+            .replace(Regex("\\s+"), " ")  // Collapse multiple spaces
+            .trim('-', ' ')
     }
 
     private fun formatDuration(ms: Long): String {

@@ -30,7 +30,8 @@ data class PlayerUiState(
     val modelState: ModelState = ModelState.NotDownloaded,
     val activeCapture: Capture? = null,
     val activeCaptureIndex: Int = 0,
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val isBookmarked: Boolean = false
 )
 
 class PlayerViewModel(
@@ -63,7 +64,8 @@ class PlayerViewModel(
                     val isFirstLoad = _uiState.value.audioFile == null
                     _uiState.value = _uiState.value.copy(
                         audioFile = it,
-                        isLoading = false
+                        isLoading = false,
+                        isBookmarked = it.isBookmarked
                     )
 
                     if (isFirstLoad) {
@@ -264,6 +266,13 @@ class PlayerViewModel(
 
     fun onCaptureErrorDismissed() {
         _uiState.value = _uiState.value.copy(captureError = null)
+    }
+
+    fun onToggleBookmark() {
+        viewModelScope.launch {
+            audioFileRepository.toggleBookmark(audioFileId)
+            // State will update via the collect in loadAudioFile
+        }
     }
 
     fun savePlaybackPosition() {

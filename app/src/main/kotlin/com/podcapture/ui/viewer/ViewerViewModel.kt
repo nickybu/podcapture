@@ -5,8 +5,10 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.podcapture.data.db.PodcastDao
 import com.podcapture.data.model.AudioFile
 import com.podcapture.data.model.Capture
+import com.podcapture.data.model.EpisodePlaybackHistory
 import com.podcapture.data.model.Tag
 import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.repository.CaptureRepository
@@ -35,6 +37,9 @@ data class ViewerUiState(
     val showTagDialog: Boolean = false,
     val editingTagsCaptureId: String? = null,
     val newTagName: String = "",
+    // Episode info for episode captures
+    val episodeTitle: String? = null,
+    val episodePlaybackHistory: EpisodePlaybackHistory? = null,
     // Obsidian export state
     val showObsidianDialog: Boolean = false,
     val obsidianTitle: String = "",
@@ -61,7 +66,8 @@ class ViewerViewModel(
     private val captureRepository: CaptureRepository,
     private val tagRepository: TagRepository,
     private val markdownManager: MarkdownManager,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    private val podcastDao: PodcastDao
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ViewerUiState())
@@ -69,8 +75,31 @@ class ViewerViewModel(
 
     init {
         loadData()
+        loadEpisodeInfoIfNeeded()
         observeTags()
         observeVaultPath()
+    }
+
+    /**
+     * Loads episode info if this is an episode capture (audioFileId starts with "episode_").
+     */
+    private fun loadEpisodeInfoIfNeeded() {
+        if (!audioFileId.startsWith("episode_")) return
+
+        viewModelScope.launch {
+            try {
+                val episodeId = audioFileId.removePrefix("episode_").toLongOrNull() ?: return@launch
+                val episode = podcastDao.getEpisodeById(episodeId)
+                val playbackHistory = podcastDao.getPlaybackHistoryForEpisode(episodeId)
+
+                _uiState.value = _uiState.value.copy(
+                    episodeTitle = episode?.title,
+                    episodePlaybackHistory = playbackHistory
+                )
+            } catch (e: Exception) {
+                // Ignore errors - episode info is optional
+            }
+        }
     }
 
     private fun loadData() {
@@ -124,11 +153,17 @@ class ViewerViewModel(
 
     fun onSaveNotes() {
         val captureId = _uiState.value.editingCaptureId ?: return
-        val audioFile = _uiState.value.audioFile ?: return
         val notes = _uiState.value.editingNotes.takeIf { it.isNotBlank() }
 
         viewModelScope.launch {
-            captureRepository.updateCaptureNotes(captureId, notes, audioFile)
+            val audioFile = _uiState.value.audioFile
+            if (audioFile != null) {
+                // Update with markdown file sync
+                captureRepository.updateCaptureNotes(captureId, notes, audioFile)
+            } else {
+                // Just save notes without markdown (e.g., for episodes)
+                captureRepository.updateCaptureNotesSimple(captureId, notes)
+            }
             _uiState.value = _uiState.value.copy(
                 editingCaptureId = null,
                 editingNotes = ""
@@ -226,8 +261,16 @@ class ViewerViewModel(
 
     // Obsidian export methods
     fun onOpenObsidianDialog() {
-        val audioFile = _uiState.value.audioFile ?: return
-        val sanitizedTitle = markdownManager.sanitizeFilename(audioFile.name)
+        // Get title from audioFile, episode title, or fallback to capture timestamp
+        val title = _uiState.value.audioFile?.name
+            ?: _uiState.value.episodeTitle
+            ?: _uiState.value.captures.firstOrNull()?.let {
+                // For captures without episode info, use timestamp
+                "Capture - ${formatTimestamp(it.timestampMs)}"
+            }
+            ?: audioFileId.removePrefix("episode_")
+
+        val sanitizedTitle = markdownManager.sanitizeFilename(title)
         val preview = generateObsidianPreview(sanitizedTitle, emptyList())
 
         _uiState.value = _uiState.value.copy(
@@ -238,6 +281,18 @@ class ViewerViewModel(
             obsidianPreview = preview,
             obsidianExportResult = null
         )
+    }
+
+    private fun formatTimestamp(ms: Long): String {
+        val totalSeconds = ms / 1000
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return if (hours > 0) {
+            String.format("%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format("%02d:%02d", minutes, seconds)
+        }
     }
 
     fun onCloseObsidianDialog() {
@@ -281,10 +336,25 @@ class ViewerViewModel(
     }
 
     private fun generateObsidianPreview(title: String, tags: List<String>): String {
-        val audioFile = _uiState.value.audioFile ?: return ""
+        val audioFile = _uiState.value.audioFile
         val captures = _uiState.value.captures
         val defaultTags = _uiState.value.obsidianDefaultTags
-        return markdownManager.generateObsidianContent(audioFile, captures, title, tags, defaultTags)
+        val playbackHistory = _uiState.value.episodePlaybackHistory
+
+        return if (audioFile != null) {
+            markdownManager.generateObsidianContent(audioFile, captures, title, tags, defaultTags)
+        } else {
+            // Use simple version for episodes without AudioFile entry
+            // Include first/last listened from playback history if available
+            markdownManager.generateObsidianContentSimple(
+                captures = captures,
+                title = title,
+                userTags = tags,
+                defaultTags = defaultTags,
+                firstListenedAt = playbackHistory?.firstPlayedAt,
+                lastListenedAt = playbackHistory?.lastPlayedAt
+            )
+        }
     }
 
     fun getObsidianContent(): String {
@@ -313,7 +383,11 @@ class ViewerViewModel(
                     ?: throw IllegalStateException("Cannot access vault folder")
 
                 // Sanitize filename
-                val safeTitle = title.replace(Regex("[\\\\/:*?\"<>|]"), "-")
+                val safeTitle = title
+                    .replace(Regex("[\\\\/:*?\"<>|#]"), "-")  // Replace problematic chars
+                    .replace(Regex("-[\\s-]*-"), "-")  // Collapse dashes with spaces/dashes between them
+                    .replace(Regex("\\s+"), " ")  // Collapse multiple spaces
+                    .trim('-', ' ')
                 val fileName = "${safeTitle}.md"
 
                 // Check if file already exists and delete it

@@ -49,5 +49,5 @@ val networkModule = module {
     single { get<Retrofit>().create(PodcastIndexApi::class.java) }
 
     // Repository
-    single { PodcastSearchRepository(get()) }
+    single { PodcastSearchRepository(get(), get()) }
 }

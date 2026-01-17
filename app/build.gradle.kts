@@ -113,6 +113,6 @@ dependencies {
     // Image Loading
     implementation(libs.coil.compose)
 
-    // Vosk Speech Recognition
-    implementation(libs.vosk.android)
+    // Sherpa ONNX (Whisper for speech recognition)
+    implementation(libs.sherpa.onnx)
 }
