@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
@@ -21,6 +22,7 @@ class SettingsDataStore(private val context: Context) {
         private val OBSIDIAN_DEFAULT_TAGS = stringPreferencesKey("obsidian_default_tags")
         private val API_CALL_COUNT = intPreferencesKey("api_call_count")
         private val API_CALL_COUNT_DATE = stringPreferencesKey("api_call_count_date")
+        private val LATEST_EPISODES_CACHE_DATE = stringPreferencesKey("latest_episodes_cache_date")
         const val DEFAULT_CAPTURE_WINDOW = 30
         const val DEFAULT_SKIP_INTERVAL = 10
         const val DEFAULT_OBSIDIAN_TAGS = "inbox/, resources/references/podcasts"
@@ -109,5 +111,29 @@ class SettingsDataStore(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[OBSIDIAN_DEFAULT_TAGS] = tags
         }
+    }
+
+    // ============ Latest Episodes Cache ============
+
+    val latestEpisodesCacheDate: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[LATEST_EPISODES_CACHE_DATE] ?: ""
+        }
+
+    suspend fun getLatestEpisodesCacheDate(): String {
+        return context.dataStore.data.map { preferences ->
+            preferences[LATEST_EPISODES_CACHE_DATE] ?: ""
+        }.first()
+    }
+
+    suspend fun setLatestEpisodesCacheDate(date: String) {
+        context.dataStore.edit { preferences ->
+            preferences[LATEST_EPISODES_CACHE_DATE] = date
+        }
+    }
+
+    fun getTodayDate(): String {
+        return java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            .format(java.util.Date())
     }
 }

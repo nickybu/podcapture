@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -48,14 +49,19 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.podcapture.data.model.LatestEpisode
 import com.podcapture.data.model.Podcast
 import org.koin.androidx.compose.koinViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PodcastSearchScreen(
     onNavigateBack: () -> Unit,
     onPodcastSelected: (Long) -> Unit,
+    onEpisodeSelected: (episodeId: Long, podcastId: Long) -> Unit,
     modifier: Modifier = Modifier,
     viewModel: PodcastSearchViewModel = koinViewModel()
 ) {
@@ -138,9 +144,19 @@ fun PodcastSearchScreen(
                         )
                     }
                     !uiState.hasSearched -> {
-                        EmptySearchState(
-                            modifier = Modifier.align(Alignment.Center)
-                        )
+                        // Show latest episodes section when not searching
+                        if (uiState.latestEpisodes.isNotEmpty() || uiState.isLoadingLatestEpisodes) {
+                            LatestEpisodesSection(
+                                episodes = uiState.latestEpisodes,
+                                isLoading = uiState.isLoadingLatestEpisodes,
+                                onEpisodeSelected = onEpisodeSelected,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            EmptySearchState(
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                        }
                     }
                 }
             }
@@ -256,5 +272,182 @@ private fun PodcastCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LatestEpisodesSection(
+    episodes: List<LatestEpisode>,
+    isLoading: Boolean,
+    onEpisodeSelected: (episodeId: Long, podcastId: Long) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Latest Episodes",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f)
+                )
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                }
+            }
+        }
+
+        item {
+            Text(
+                text = "From your bookmarked podcasts (last 7 days)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        if (episodes.isEmpty() && !isLoading) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Podcasts,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "No recent episodes",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Bookmark podcasts to see their latest episodes here",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+            }
+        }
+
+        items(episodes, key = { it.episode.id }) { latestEpisode ->
+            LatestEpisodeCard(
+                latestEpisode = latestEpisode,
+                onClick = { onEpisodeSelected(latestEpisode.episode.id, latestEpisode.episode.podcastId) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun LatestEpisodeCard(
+    latestEpisode: LatestEpisode,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val episode = latestEpisode.episode
+    val dateFormat = remember { SimpleDateFormat("MMM d", Locale.getDefault()) }
+    val publishedDate = remember(episode.publishedDate) {
+        dateFormat.format(Date(episode.publishedDate * 1000))
+    }
+
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            // Podcast artwork
+            if (latestEpisode.podcastArtworkUrl.isNotEmpty()) {
+                AsyncImage(
+                    model = latestEpisode.podcastArtworkUrl,
+                    contentDescription = "${latestEpisode.podcastTitle} artwork",
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(60.dp)
+                        .clip(RoundedCornerShape(8.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Podcasts,
+                        contentDescription = null,
+                        modifier = Modifier.size(30.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = episode.title,
+                    style = MaterialTheme.typography.titleSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = latestEpisode.podcastTitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = publishedDate,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    if (episode.duration > 0) {
+                        Text(
+                            text = " · ${formatDuration(episode.duration)}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatDuration(durationSeconds: Int): String {
+    val hours = durationSeconds / 3600
+    val minutes = (durationSeconds % 3600) / 60
+    return if (hours > 0) {
+        "${hours}h ${minutes}m"
+    } else {
+        "${minutes}m"
     }
 }

@@ -135,6 +135,19 @@ interface PodcastDao {
     @Query("DELETE FROM episode_playback_history WHERE episodeId = :episodeId")
     suspend fun deletePlaybackHistory(episodeId: Long)
 
+    // ============ Latest Episodes (Across All Bookmarked Podcasts) ============
+
+    @Query("""
+        SELECT ce.* FROM cached_episodes ce
+        INNER JOIN bookmarked_podcasts bp ON ce.podcastId = bp.id
+        WHERE ce.publishedDate >= :sinceTimestamp
+        ORDER BY ce.publishedDate DESC
+    """)
+    suspend fun getRecentEpisodesFromBookmarkedPodcasts(sinceTimestamp: Long): List<CachedEpisode>
+
+    @Query("SELECT * FROM bookmarked_podcasts WHERE id IN (:podcastIds)")
+    suspend fun getBookmarkedPodcastsByIds(podcastIds: List<Long>): List<BookmarkedPodcast>
+
     // ============ Combined Queries ============
 
     @Transaction
