@@ -166,6 +166,9 @@ fun PodCaptureNavHost(
                     onNavigateBack = { navController.popBackStack() },
                     onPodcastSelected = { podcastId ->
                         navController.navigate(NavRoute.PodcastDetail(podcastId))
+                    },
+                    onEpisodeSelected = { episodeId, podcastId ->
+                        navController.navigate(NavRoute.EpisodePlayer(episodeId, podcastId))
                     }
                 )
             }

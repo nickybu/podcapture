@@ -8,6 +8,7 @@ import com.podcapture.data.model.AudioFile
 import com.podcapture.data.model.BookmarkedPodcast
 import com.podcapture.data.model.CachedEpisode
 import com.podcapture.data.model.Episode
+import com.podcapture.data.model.LatestEpisode
 import com.podcapture.data.model.EpisodePlaybackHistory
 import com.podcapture.data.model.Podcast
 import com.podcapture.data.model.PodcastTag
@@ -82,6 +83,47 @@ class PodcastRepository(
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    // ============ Latest Episodes (Across All Bookmarked Podcasts) ============
+
+    /**
+     * Gets recent episodes from the last 7 days from all bookmarked podcasts.
+     * First refreshes episodes if this is a new day since the last cache.
+     */
+    suspend fun getLatestEpisodes(forceRefresh: Boolean = false): List<LatestEpisode> = withContext(Dispatchers.IO) {
+        val today = settingsDataStore.getTodayDate()
+        val lastCacheDate = settingsDataStore.getLatestEpisodesCacheDate()
+
+        // Refresh episodes for all bookmarked podcasts if it's a new day or forced
+        if (forceRefresh || lastCacheDate != today) {
+            val bookmarkedPodcasts = podcastDao.getAllBookmarkedPodcasts().first()
+            for (podcast in bookmarkedPodcasts) {
+                refreshEpisodes(podcast.id)
+            }
+            settingsDataStore.setLatestEpisodesCacheDate(today)
+        }
+
+        // Get episodes from the last 7 days
+        val sevenDaysAgo = System.currentTimeMillis() / 1000 - (7 * 24 * 60 * 60)
+        val recentEpisodes = podcastDao.getRecentEpisodesFromBookmarkedPodcasts(sevenDaysAgo)
+
+        // Get podcast info for all episodes
+        val podcastIds = recentEpisodes.map { it.podcastId }.distinct()
+        val podcasts = podcastDao.getBookmarkedPodcastsByIds(podcastIds)
+        val podcastMap = podcasts.associateBy { it.id }
+
+        // Map to LatestEpisode with podcast info
+        recentEpisodes.mapNotNull { episode ->
+            val podcast = podcastMap[episode.podcastId]
+            if (podcast != null) {
+                LatestEpisode(
+                    episode = episode,
+                    podcastTitle = podcast.title,
+                    podcastArtworkUrl = podcast.artworkUrl
+                )
+            } else null
         }
     }
 

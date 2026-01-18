@@ -61,3 +61,12 @@ enum class EpisodeDownloadState {
     Downloaded,
     Error
 }
+
+/**
+ * Episode with podcast info for display in latest episodes list.
+ */
+data class LatestEpisode(
+    val episode: CachedEpisode,
+    val podcastTitle: String,
+    val podcastArtworkUrl: String
+)

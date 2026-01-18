@@ -2,7 +2,9 @@ package com.podcapture.ui.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.podcapture.data.model.LatestEpisode
 import com.podcapture.data.model.Podcast
+import com.podcapture.data.repository.PodcastRepository
 import com.podcapture.data.repository.PodcastSearchRepository
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -16,17 +18,39 @@ data class PodcastSearchUiState(
     val podcasts: List<Podcast> = emptyList(),
     val isLoading: Boolean = false,
     val error: String? = null,
-    val hasSearched: Boolean = false
+    val hasSearched: Boolean = false,
+    val latestEpisodes: List<LatestEpisode> = emptyList(),
+    val isLoadingLatestEpisodes: Boolean = false
 )
 
 class PodcastSearchViewModel(
-    private val repository: PodcastSearchRepository
+    private val repository: PodcastSearchRepository,
+    private val podcastRepository: PodcastRepository
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(PodcastSearchUiState())
     val uiState: StateFlow<PodcastSearchUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
+
+    init {
+        loadLatestEpisodes()
+    }
+
+    private fun loadLatestEpisodes() {
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingLatestEpisodes = true)
+            try {
+                val episodes = podcastRepository.getLatestEpisodes()
+                _uiState.value = _uiState.value.copy(
+                    latestEpisodes = episodes,
+                    isLoadingLatestEpisodes = false
+                )
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(isLoadingLatestEpisodes = false)
+            }
+        }
+    }
 
     fun onQueryChanged(query: String) {
         _uiState.value = _uiState.value.copy(query = query)
