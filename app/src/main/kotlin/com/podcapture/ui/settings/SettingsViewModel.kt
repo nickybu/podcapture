@@ -15,6 +15,9 @@ data class SettingsUiState(
     val obsidianVaultDisplayName: String = "",
     val obsidianDefaultTags: String = "inbox/, resources/references/podcasts",
     val apiCallCount: Int = 0,
+    val themeBackgroundColor: String = "#13293D",
+    val themeAccent1Color: String = "#2A628F",
+    val themeAccent2Color: String = "#3E92CC",
     val isLoading: Boolean = true
 )
 
@@ -66,6 +69,27 @@ class SettingsViewModel(
                 )
             }
         }
+        viewModelScope.launch {
+            settingsDataStore.themeBackgroundColor.collect { color ->
+                _uiState.value = _uiState.value.copy(
+                    themeBackgroundColor = color
+                )
+            }
+        }
+        viewModelScope.launch {
+            settingsDataStore.themeAccent1Color.collect { color ->
+                _uiState.value = _uiState.value.copy(
+                    themeAccent1Color = color
+                )
+            }
+        }
+        viewModelScope.launch {
+            settingsDataStore.themeAccent2Color.collect { color ->
+                _uiState.value = _uiState.value.copy(
+                    themeAccent2Color = color
+                )
+            }
+        }
     }
 
     fun setCaptureWindowSeconds(seconds: Int) {
@@ -89,6 +113,30 @@ class SettingsViewModel(
     fun setObsidianDefaultTags(tags: String) {
         viewModelScope.launch {
             settingsDataStore.setObsidianDefaultTags(tags)
+        }
+    }
+
+    fun setThemeBackgroundColor(color: String) {
+        viewModelScope.launch {
+            settingsDataStore.setThemeBackgroundColor(color)
+        }
+    }
+
+    fun setThemeAccent1Color(color: String) {
+        viewModelScope.launch {
+            settingsDataStore.setThemeAccent1Color(color)
+        }
+    }
+
+    fun setThemeAccent2Color(color: String) {
+        viewModelScope.launch {
+            settingsDataStore.setThemeAccent2Color(color)
+        }
+    }
+
+    fun resetThemeColors() {
+        viewModelScope.launch {
+            settingsDataStore.resetThemeColors()
         }
     }
 }

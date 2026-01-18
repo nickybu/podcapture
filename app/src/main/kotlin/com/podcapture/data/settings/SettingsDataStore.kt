@@ -23,9 +23,15 @@ class SettingsDataStore(private val context: Context) {
         private val API_CALL_COUNT = intPreferencesKey("api_call_count")
         private val API_CALL_COUNT_DATE = stringPreferencesKey("api_call_count_date")
         private val LATEST_EPISODES_CACHE_DATE = stringPreferencesKey("latest_episodes_cache_date")
+        private val THEME_BACKGROUND_COLOR = stringPreferencesKey("theme_background_color")
+        private val THEME_ACCENT1_COLOR = stringPreferencesKey("theme_accent1_color")
+        private val THEME_ACCENT2_COLOR = stringPreferencesKey("theme_accent2_color")
         const val DEFAULT_CAPTURE_WINDOW = 30
         const val DEFAULT_SKIP_INTERVAL = 10
         const val DEFAULT_OBSIDIAN_TAGS = "inbox/, resources/references/podcasts"
+        const val DEFAULT_THEME_BACKGROUND = "#13293D"
+        const val DEFAULT_THEME_ACCENT1 = "#2A628F"
+        const val DEFAULT_THEME_ACCENT2 = "#3E92CC"
     }
 
     val captureWindowSeconds: Flow<Int> = context.dataStore.data
@@ -63,6 +69,21 @@ class SettingsDataStore(private val context: Context) {
     val apiCallCountDate: Flow<String> = context.dataStore.data
         .map { preferences ->
             preferences[API_CALL_COUNT_DATE] ?: ""
+        }
+
+    val themeBackgroundColor: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[THEME_BACKGROUND_COLOR] ?: DEFAULT_THEME_BACKGROUND
+        }
+
+    val themeAccent1Color: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[THEME_ACCENT1_COLOR] ?: DEFAULT_THEME_ACCENT1
+        }
+
+    val themeAccent2Color: Flow<String> = context.dataStore.data
+        .map { preferences ->
+            preferences[THEME_ACCENT2_COLOR] ?: DEFAULT_THEME_ACCENT2
         }
 
     suspend fun incrementApiCallCount() {
@@ -135,5 +156,33 @@ class SettingsDataStore(private val context: Context) {
     fun getTodayDate(): String {
         return java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
             .format(java.util.Date())
+    }
+
+    // ============ Theme Colors ============
+
+    suspend fun setThemeBackgroundColor(color: String) {
+        context.dataStore.edit { preferences ->
+            preferences[THEME_BACKGROUND_COLOR] = color
+        }
+    }
+
+    suspend fun setThemeAccent1Color(color: String) {
+        context.dataStore.edit { preferences ->
+            preferences[THEME_ACCENT1_COLOR] = color
+        }
+    }
+
+    suspend fun setThemeAccent2Color(color: String) {
+        context.dataStore.edit { preferences ->
+            preferences[THEME_ACCENT2_COLOR] = color
+        }
+    }
+
+    suspend fun resetThemeColors() {
+        context.dataStore.edit { preferences ->
+            preferences[THEME_BACKGROUND_COLOR] = DEFAULT_THEME_BACKGROUND
+            preferences[THEME_ACCENT1_COLOR] = DEFAULT_THEME_ACCENT1
+            preferences[THEME_ACCENT2_COLOR] = DEFAULT_THEME_ACCENT2
+        }
     }
 }
