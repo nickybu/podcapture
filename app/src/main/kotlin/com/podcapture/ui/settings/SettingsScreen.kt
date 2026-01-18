@@ -4,7 +4,10 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,12 +18,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -28,7 +33,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
@@ -37,9 +44,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.podcapture.ui.theme.isValidHexColor
+import com.podcapture.ui.theme.parseHexColor
 import org.koin.androidx.compose.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -332,6 +343,76 @@ fun SettingsScreen(
                 }
             }
 
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Theme section
+            Text(
+                text = "Theme",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = "Custom Colors",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        text = "Customize the app's color scheme with hex colors",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    ColorInputField(
+                        label = "Background",
+                        value = uiState.themeBackgroundColor,
+                        onValueChange = { viewModel.setThemeBackgroundColor(it) }
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    ColorInputField(
+                        label = "Accent 1 (Secondary)",
+                        value = uiState.themeAccent1Color,
+                        onValueChange = { viewModel.setThemeAccent1Color(it) }
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    ColorInputField(
+                        label = "Accent 2 (Primary)",
+                        value = uiState.themeAccent2Color,
+                        onValueChange = { viewModel.setThemeAccent2Color(it) }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    OutlinedButton(
+                        onClick = { viewModel.resetThemeColors() },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Reset to Default Colors")
+                    }
+                }
+            }
+
             // Bottom spacing to ensure content is scrollable
             Spacer(modifier = Modifier.height(32.dp))
         }
@@ -388,5 +469,60 @@ private fun NumberPicker(
                 modifier = Modifier.size(32.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun ColorInputField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isValid = isValidHexColor(value)
+    val parsedColor = parseHexColor(value)
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = { newValue ->
+                // Ensure the value starts with # and limit to 7 characters
+                val cleanValue = if (newValue.startsWith("#")) {
+                    "#" + newValue.removePrefix("#").take(6).uppercase()
+                } else {
+                    "#" + newValue.take(6).uppercase()
+                }
+                onValueChange(cleanValue)
+            },
+            label = { Text(label) },
+            singleLine = true,
+            isError = !isValid && value.length > 1,
+            colors = if (!isValid && value.length > 1) {
+                OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.error,
+                    unfocusedBorderColor = MaterialTheme.colorScheme.error
+                )
+            } else {
+                OutlinedTextFieldDefaults.colors()
+            },
+            modifier = Modifier.weight(1f)
+        )
+
+        Spacer(modifier = Modifier.width(12.dp))
+
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(parsedColor ?: Color.Transparent)
+                .border(
+                    width = 1.dp,
+                    color = if (isValid) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.error,
+                    shape = RoundedCornerShape(8.dp)
+                )
+        )
     }
 }
