@@ -1,30 +1,46 @@
 # PodCapture
 
-An Android app for capturing and transcribing moments from podcasts and audio files.
+An Android app for discovering podcasts, capturing moments, and transcribing them for later reference.
 
 ## Features
 
-- **Audio Playback**: Play audio files with a waveform timeline, scrubbing support, and adjustable skip intervals
-- **Capture Moments**: Capture audio segments with automatic transcription using Vosk (offline speech recognition)
-- **Organize with Tags**: Tag captures for easy organization and filtering
-- **Notes**: Add personal notes to any capture
-- **Obsidian Export**: Export captures to Obsidian with customizable frontmatter tags and YAML formatting
-- **Markdown Export**: Share captures as markdown files
+### Podcast Discovery
+- Search podcasts by title, author, or topic using the Podcast Index API
+- Bookmark podcasts to build your library
+- Browse latest episodes from bookmarked podcasts (updated daily)
+- Stream or download episodes for offline listening
+
+### Capture & Transcribe
+- Play episodes with a waveform timeline and adjustable skip intervals
+- Capture audio segments around moments of interest
+- Automatic transcription using offline speech recognition
+- Configurable capture window (how much audio before/after the moment to include)
+
+### Organize & Export
+- Tag captures for easy organization and filtering
+- Add personal notes to any capture
+- Export to Obsidian with customizable frontmatter and YAML formatting
+- Share captures as markdown files
+
+### Personalization
+- Customize the app's color scheme with hex color inputs
+- Set background and accent colors to match your style
+- Theme changes apply instantly across the entire app
 
 ## Tech Stack
 
-- **Kotlin** with Jetpack Compose for UI
-- **Media3 (ExoPlayer)** for audio playback
-- **Room** for local database
-- **Vosk** for offline speech-to-text transcription
-- **Koin** for dependency injection
-- **DataStore** for preferences
-- **Storage Access Framework** for Obsidian vault integration
+- Kotlin with Jetpack Compose
+- Media3 (ExoPlayer) for audio playback
+- Room for local database
+- Vosk for offline speech-to-text
+- Podcast Index API for podcast data
+- Koin for dependency injection
+- DataStore for preferences
 
 ## Requirements
 
 - Android 9.0 (API 28) or higher
-- ~50MB for the Vosk speech recognition model (downloaded on first use)
+- ~50MB for the speech recognition model (downloaded on first use)
 
 ## Building
 
