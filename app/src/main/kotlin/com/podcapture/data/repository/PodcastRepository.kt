@@ -14,7 +14,11 @@ import com.podcapture.data.model.Podcast
 import com.podcapture.data.model.PodcastTag
 import com.podcapture.data.model.Tag
 import com.podcapture.data.model.toDomain
+import com.podcapture.data.opml.OpmlFeed
+import com.podcapture.data.opml.OpmlManager
 import com.podcapture.data.settings.SettingsDataStore
+import java.io.InputStream
+import java.io.OutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -428,6 +432,118 @@ class PodcastRepository(
         val audioFileId = "episode_$episodeId"
         val audioFile = audioFileDao.getFileById(audioFileId)
         audioFile != null
+    }
+
+    // ============ OPML Import/Export ============
+
+    private val opmlManager = OpmlManager()
+
+    /**
+     * Result of an OPML import operation.
+     */
+    data class ImportResult(
+        val imported: Int,
+        val skipped: Int,
+        val failed: Int,
+        val errors: List<String>
+    )
+
+    /**
+     * Exports all bookmarked podcasts to OPML format.
+     */
+    suspend fun exportToOpml(outputStream: OutputStream): Result<Int> = withContext(Dispatchers.IO) {
+        try {
+            val podcasts = podcastDao.getAllBookmarkedPodcasts().first()
+            val podcastsWithFeeds = podcasts.filter { it.feedUrl.isNotBlank() }
+            opmlManager.writeOpml(outputStream, podcastsWithFeeds)
+            Result.success(podcastsWithFeeds.size)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Imports podcasts from an OPML file.
+     * Looks up each feed URL via the Podcast Index API and bookmarks the podcast.
+     * Skips podcasts that are already bookmarked.
+     */
+    suspend fun importFromOpml(
+        inputStream: InputStream,
+        onProgress: (current: Int, total: Int, podcastTitle: String) -> Unit
+    ): Result<ImportResult> = withContext(Dispatchers.IO) {
+        try {
+            val parseResult = opmlManager.parseOpml(inputStream)
+            if (parseResult.isFailure) {
+                return@withContext Result.failure(parseResult.exceptionOrNull() ?: Exception("Failed to parse OPML"))
+            }
+
+            val document = parseResult.getOrThrow()
+            val feeds = document.feeds
+            var imported = 0
+            var skipped = 0
+            var failed = 0
+            val errors = mutableListOf<String>()
+
+            feeds.forEachIndexed { index, feed ->
+                onProgress(index + 1, feeds.size, feed.title)
+
+                try {
+                    val result = importSingleFeed(feed)
+                    when (result) {
+                        ImportFeedResult.IMPORTED -> imported++
+                        ImportFeedResult.SKIPPED -> skipped++
+                        ImportFeedResult.FAILED -> {
+                            failed++
+                            errors.add("${feed.title}: Not found in Podcast Index")
+                        }
+                    }
+                } catch (e: Exception) {
+                    failed++
+                    errors.add("${feed.title}: ${e.message}")
+                }
+            }
+
+            Result.success(ImportResult(imported, skipped, failed, errors))
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private enum class ImportFeedResult { IMPORTED, SKIPPED, FAILED }
+
+    private suspend fun importSingleFeed(feed: OpmlFeed): ImportFeedResult {
+        // Try to look up by feed URL
+        trackApiCall()
+        val response = try {
+            api.getPodcastByFeedUrl(feed.feedUrl)
+        } catch (e: Exception) {
+            return ImportFeedResult.FAILED
+        }
+
+        if (response.status != "true" || response.feed == null) {
+            return ImportFeedResult.FAILED
+        }
+
+        val podcast = response.feed.toDomain()
+
+        // Check if already bookmarked
+        val isBookmarked = podcastDao.isPodcastBookmarked(podcast.id).first()
+        if (isBookmarked) {
+            return ImportFeedResult.SKIPPED
+        }
+
+        // Bookmark the podcast
+        bookmarkPodcast(podcast)
+        return ImportFeedResult.IMPORTED
+    }
+
+    /**
+     * Generates OPML content as a string (for sharing).
+     */
+    suspend fun generateOpmlString(): String = withContext(Dispatchers.IO) {
+        val podcasts = podcastDao.getAllBookmarkedPodcasts().first()
+        val podcastsWithFeeds = podcasts.filter { it.feedUrl.isNotBlank() }
+        opmlManager.generateOpml(podcastsWithFeeds)
     }
 }
 

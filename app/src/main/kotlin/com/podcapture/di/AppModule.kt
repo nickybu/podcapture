@@ -65,7 +65,7 @@ val appModule = module {
     // ViewModels
     viewModel { HomeViewModel(get(), get(), get(), get()) }
     viewModel { params -> PlayerViewModel(params.get(), get(), get(), get(), get(), get()) }
-    viewModel { SettingsViewModel(get()) }
+    viewModel { SettingsViewModel(get(), get()) }
     viewModel { params -> ViewerViewModel(params.get(), androidContext(), get(), get(), get(), get(), get(), get()) }
     viewModel { PodcastSearchViewModel(get(), get()) }
     viewModel { params -> PodcastDetailViewModel(params.get(), get(), get(), get(), get()) }

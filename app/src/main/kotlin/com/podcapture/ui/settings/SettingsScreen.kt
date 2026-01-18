@@ -23,23 +23,30 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -75,6 +82,113 @@ fun SettingsScreen(
             )
             viewModel.setObsidianVaultUri(it.toString())
         }
+    }
+
+    // OPML import launcher
+    val opmlImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let {
+            viewModel.importOpml(context, it)
+        }
+    }
+
+    // OPML export launcher
+    val opmlExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/x-opml")
+    ) { uri: Uri? ->
+        uri?.let {
+            viewModel.exportOpml(context, it)
+        }
+    }
+
+    // Import progress dialog
+    if (uiState.isImporting) {
+        AlertDialog(
+            onDismissRequest = { },
+            title = { Text("Importing Podcasts") },
+            text = {
+                Column {
+                    uiState.importProgress?.let { progress ->
+                        Text(
+                            text = "Processing ${progress.current} of ${progress.total}",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = progress.currentPodcast,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        LinearProgressIndicator(
+                            progress = { progress.current.toFloat() / progress.total },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } ?: run {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Text("Reading OPML file...")
+                        }
+                    }
+                }
+            },
+            confirmButton = { }
+        )
+    }
+
+    // Import result dialog
+    uiState.importResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearImportResult() },
+            title = { Text("Import Complete") },
+            text = {
+                Column {
+                    Text("Imported: ${result.imported} podcasts")
+                    if (result.skipped > 0) {
+                        Text("Skipped: ${result.skipped} (already bookmarked)")
+                    }
+                    if (result.failed > 0) {
+                        Text("Failed: ${result.failed}")
+                        if (result.errors.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = result.errors.take(3).joinToString("\n"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearImportResult() }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    // Export result dialog
+    uiState.exportResult?.let { result ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearExportResult() },
+            title = { Text(if (result is ExportResult.Success) "Export Complete" else "Export Failed") },
+            text = {
+                when (result) {
+                    is ExportResult.Success -> Text("Exported ${result.count} podcasts to OPML file")
+                    is ExportResult.Error -> Text(result.message)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearExportResult() }) {
+                    Text("OK")
+                }
+            }
+        )
     }
 
     Scaffold(
@@ -335,6 +449,80 @@ fun SettingsScreen(
 
                     Text(
                         text = "Visit the Podcast Index dashboard to view detailed API usage and manage your account",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Podcast Subscriptions section
+            Text(
+                text = "Podcast Subscriptions",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    Text(
+                        text = "Import & Export",
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    Text(
+                        text = "Transfer your podcast subscriptions using standard OPML format",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { opmlImportLauncher.launch(arrayOf("text/x-opml", "text/xml", "application/xml", "*/*")) },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.Download,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Import")
+                        }
+
+                        Button(
+                            onClick = { opmlExportLauncher.launch("podcapture_subscriptions.opml") },
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(
+                                Icons.Default.Upload,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Export")
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "OPML files can be imported from or exported to other podcast apps",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,

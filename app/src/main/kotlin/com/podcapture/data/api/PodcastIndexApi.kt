@@ -26,6 +26,11 @@ interface PodcastIndexApi {
         @Query("id") id: Long
     ): PodcastByIdResponse
 
+    @GET("podcasts/byfeedurl")
+    suspend fun getPodcastByFeedUrl(
+        @Query("url") feedUrl: String
+    ): PodcastByIdResponse
+
     @GET("episodes/byfeedid")
     suspend fun getEpisodesByPodcastId(
         @Query("id") podcastId: Long,
