@@ -49,10 +49,10 @@ private fun generateDarkColorScheme(colors: ThemeColors): ColorScheme {
         secondaryContainer = accent1.darken(0.4f),
         onSecondaryContainer = accent2,
 
-        // Tertiary - Keep Coral for capture actions
-        tertiary = Coral,
+        // Tertiary - Use primary accent (accent2) for capture actions and playhead
+        tertiary = accent2,
         onTertiary = background.darken(0.3f),
-        tertiaryContainer = CoralMuted,
+        tertiaryContainer = accent2.darken(0.2f),
         onTertiaryContainer = background.darken(0.3f),
 
         // Background & Surface
@@ -106,11 +106,11 @@ private fun generateLightColorScheme(colors: ThemeColors): ColorScheme {
         secondaryContainer = accent2,
         onSecondaryContainer = background.darken(0.3f),
 
-        // Tertiary - Coral
-        tertiary = CoralDark,
+        // Tertiary - Use primary accent (accent2) for capture actions and playhead
+        tertiary = accent2.darken(0.2f),
         onTertiary = Color.White,
-        tertiaryContainer = Coral,
-        onTertiaryContainer = background.darken(0.3f),
+        tertiaryContainer = accent2,
+        onTertiaryContainer = Color.White,
 
         // Background & Surface
         background = SurfaceLight,
@@ -158,10 +158,10 @@ private val DarkColorScheme = darkColorScheme(
     secondaryContainer = SteelBlueDark,
     onSecondaryContainer = OceanBlue,
 
-    // Tertiary - Coral for capture/fun actions
-    tertiary = Coral,
+    // Tertiary - Use Ocean Blue (primary accent) for capture actions and playhead
+    tertiary = OceanBlue,
     onTertiary = NavyDeep,
-    tertiaryContainer = CoralMuted,
+    tertiaryContainer = OceanBlueMuted,
     onTertiaryContainer = NavyDeep,
 
     // Background & Surface
@@ -209,11 +209,11 @@ private val LightColorScheme = lightColorScheme(
     secondaryContainer = OceanBlue,
     onSecondaryContainer = NavyDeep,
 
-    // Tertiary - Coral
-    tertiary = CoralDark,
+    // Tertiary - Use Ocean Blue (primary accent) for capture actions and playhead
+    tertiary = OceanBlueMuted,
     onTertiary = Color.White,
-    tertiaryContainer = Coral,
-    onTertiaryContainer = NavyDeep,
+    tertiaryContainer = OceanBlue,
+    onTertiaryContainer = Color.White,
 
     // Background & Surface
     background = SurfaceLight,
