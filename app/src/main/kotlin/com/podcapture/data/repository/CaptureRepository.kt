@@ -114,4 +114,18 @@ class CaptureRepository(
 
     fun getMarkdownFilePath(audioFile: AudioFile): String =
         markdownManager.getMarkdownFilePath(audioFile)
+
+    suspend fun updateFormattedTranscription(captureId: String, formattedTranscription: String?, audioFile: AudioFile?) {
+        captureDao.updateFormattedTranscription(captureId, formattedTranscription)
+
+        // Update markdown file if audioFile is available
+        if (audioFile != null) {
+            val allCaptures = captureDao.getCapturesForFileOnce(audioFile.id)
+            markdownManager.updateMarkdownFile(audioFile, allCaptures)
+        }
+    }
+
+    suspend fun updateFormattedTranscriptionSimple(captureId: String, formattedTranscription: String?) {
+        captureDao.updateFormattedTranscription(captureId, formattedTranscription)
+    }
 }

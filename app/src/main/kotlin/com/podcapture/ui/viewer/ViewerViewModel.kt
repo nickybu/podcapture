@@ -15,6 +15,7 @@ import com.podcapture.data.repository.CaptureRepository
 import com.podcapture.data.repository.MarkdownManager
 import com.podcapture.data.repository.TagRepository
 import com.podcapture.data.settings.SettingsDataStore
+import com.podcapture.util.TranscriptFormattingParser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -40,6 +41,11 @@ data class ViewerUiState(
     // Episode info for episode captures
     val episodeTitle: String? = null,
     val episodePlaybackHistory: EpisodePlaybackHistory? = null,
+    // Transcript formatting state
+    val editingTranscriptCaptureId: String? = null,
+    val editingFormattedTranscript: String = "",
+    val editingOriginalTranscription: String = "",
+    val transcriptValidationError: Boolean = false,
     // Obsidian export state
     val showObsidianDialog: Boolean = false,
     val obsidianTitle: String = "",
@@ -175,6 +181,63 @@ class ViewerViewModel(
         _uiState.value = _uiState.value.copy(
             editingCaptureId = null,
             editingNotes = ""
+        )
+    }
+
+    // Transcript formatting
+    fun onEditTranscript(captureId: String, originalTranscription: String, currentFormatted: String?) {
+        _uiState.value = _uiState.value.copy(
+            editingTranscriptCaptureId = captureId,
+            editingOriginalTranscription = originalTranscription,
+            editingFormattedTranscript = currentFormatted ?: originalTranscription,
+            transcriptValidationError = false
+        )
+    }
+
+    fun onFormattedTranscriptChanged(text: String) {
+        val original = _uiState.value.editingOriginalTranscription
+        val isValid = TranscriptFormattingParser.validateFormatting(original, text)
+        _uiState.value = _uiState.value.copy(
+            editingFormattedTranscript = text,
+            transcriptValidationError = !isValid
+        )
+    }
+
+    fun onSaveFormattedTranscript() {
+        val captureId = _uiState.value.editingTranscriptCaptureId ?: return
+        val formatted = _uiState.value.editingFormattedTranscript
+        val original = _uiState.value.editingOriginalTranscription
+
+        // If validation fails, save null (revert to original) to avoid storing invalid text
+        val isValid = TranscriptFormattingParser.validateFormatting(original, formatted)
+        val formattedToSave = when {
+            !isValid -> null  // Invalid: discard and revert to original
+            formatted == original -> null  // No changes: save null
+            else -> formatted  // Valid formatting: save it
+        }
+
+        viewModelScope.launch {
+            val audioFile = _uiState.value.audioFile
+            if (audioFile != null) {
+                captureRepository.updateFormattedTranscription(captureId, formattedToSave, audioFile)
+            } else {
+                captureRepository.updateFormattedTranscriptionSimple(captureId, formattedToSave)
+            }
+            _uiState.value = _uiState.value.copy(
+                editingTranscriptCaptureId = null,
+                editingFormattedTranscript = "",
+                editingOriginalTranscription = "",
+                transcriptValidationError = false
+            )
+        }
+    }
+
+    fun onDismissTranscriptEdit() {
+        _uiState.value = _uiState.value.copy(
+            editingTranscriptCaptureId = null,
+            editingFormattedTranscript = "",
+            editingOriginalTranscription = "",
+            transcriptValidationError = false
         )
     }
 
