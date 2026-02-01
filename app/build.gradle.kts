@@ -115,4 +115,7 @@ dependencies {
 
     // Sherpa ONNX (Whisper for speech recognition)
     implementation(libs.sherpa.onnx)
+
+    // NewPipe Extractor (YouTube stream extraction)
+    implementation(libs.newpipe.extractor)
 }

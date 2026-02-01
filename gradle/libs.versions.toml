@@ -46,6 +46,9 @@ coil = "2.7.0"
 # Sherpa ONNX (Whisper support for Android)
 sherpaOnnx = "6.25.12"
 
+# NewPipe Extractor (YouTube stream extraction)
+newpipeExtractor = "v0.25.1"
+
 [libraries]
 # AndroidX Core
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -106,6 +109,9 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 
 # Sherpa ONNX (Whisper for Android)
 sherpa-onnx = { group = "com.bihe0832.android", name = "lib-sherpa-onnx", version.ref = "sherpaOnnx" }
+
+# NewPipe Extractor (YouTube stream extraction)
+newpipe-extractor = { group = "com.github.TeamNewPipe", name = "NewPipeExtractor", version.ref = "newpipeExtractor" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

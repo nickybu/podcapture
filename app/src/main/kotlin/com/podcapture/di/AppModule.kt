@@ -21,6 +21,8 @@ import com.podcapture.ui.search.PodcastDetailViewModel
 import com.podcapture.ui.search.PodcastSearchViewModel
 import com.podcapture.ui.settings.SettingsViewModel
 import com.podcapture.ui.viewer.ViewerViewModel
+import com.podcapture.youtube.YouTubeCookieManager
+import com.podcapture.youtube.YouTubeDownloadManager
 import org.koin.android.ext.koin.androidContext
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
@@ -62,8 +64,12 @@ val appModule = module {
     // Download Manager
     single { DownloadManager(androidContext(), get()) }
 
+    // YouTube Download Manager
+    single { YouTubeCookieManager(androidContext()) }
+    single { YouTubeDownloadManager(androidContext(), get()) }
+
     // ViewModels
-    viewModel { HomeViewModel(get(), get(), get(), get()) }
+    viewModel { HomeViewModel(get(), get(), get(), get(), get()) }
     viewModel { params -> PlayerViewModel(params.get(), get(), get(), get(), get(), get()) }
     viewModel { SettingsViewModel(get(), get()) }
     viewModel { params -> ViewerViewModel(params.get(), androidContext(), get(), get(), get(), get(), get(), get()) }
