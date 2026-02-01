@@ -321,13 +321,17 @@ class PodcastDetailViewModel(
     /**
      * Start downloading an episode using the background DownloadManager.
      * Downloads continue even if the user leaves this screen.
+     * If the podcast is not bookmarked, it will be auto-bookmarked to satisfy
+     * the database foreign key constraint.
      */
     fun onDownloadEpisode(episodeId: Long) {
         val episode = _uiState.value.episodes.find { it.episode.id == episodeId }?.episode ?: return
-        val podcastTitle = _uiState.value.podcast?.title ?: ""
+        val podcast = _uiState.value.podcast
+        val podcastTitle = podcast?.title ?: ""
 
         // Use DownloadManager for background downloads
-        downloadManager.downloadEpisode(episode, podcastTitle)
+        // Pass the podcast so it can be auto-bookmarked if needed
+        downloadManager.downloadEpisode(episode, podcastTitle, podcast)
     }
 
     // Tag management
