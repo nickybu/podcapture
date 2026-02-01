@@ -1,8 +1,10 @@
 package com.podcapture.ui.home
 
+import android.app.Activity
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.podcapture.youtube.YouTubeCaptchaActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -64,15 +66,18 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -82,6 +87,10 @@ import coil.compose.AsyncImage
 import com.podcapture.data.model.AudioFile
 import com.podcapture.data.model.BookmarkedPodcast
 import com.podcapture.data.model.Tag
+import com.podcapture.ui.home.components.AddSourceBottomSheet
+import com.podcapture.ui.home.components.YouTubeUrlDialog
+import com.podcapture.youtube.YouTubeDownloadState
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -101,6 +110,8 @@ fun HomeScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    val bottomSheetState = rememberModalBottomSheetState()
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -112,6 +123,16 @@ fun HomeScreen(
                 android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
             )
             viewModel.onFileSelected(context, it)
+        }
+    }
+
+    val captchaLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            viewModel.onCaptchaSolved()
+        } else {
+            viewModel.onCaptchaCancelled()
         }
     }
 
@@ -147,6 +168,38 @@ fun HomeScreen(
         }
     }
 
+    // Handle YouTube download state changes
+    LaunchedEffect(uiState.youTubeDownloadState) {
+        when (val state = uiState.youTubeDownloadState) {
+            is YouTubeDownloadState.Completed -> {
+                val result = snackbarHostState.showSnackbar(
+                    message = "Downloaded: ${state.title}",
+                    actionLabel = "Open"
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    onNavigateToPlayer(state.audioFileId)
+                }
+                viewModel.onYouTubeDownloadStateHandled()
+            }
+            is YouTubeDownloadState.Error -> {
+                snackbarHostState.showSnackbar(state.message)
+                viewModel.onYouTubeDownloadStateHandled()
+            }
+            is YouTubeDownloadState.Downloading -> {
+                // Show a snackbar when download starts (only at 0%)
+                if (state.percent == 0) {
+                    snackbarHostState.showSnackbar("Download started: ${state.title}")
+                }
+            }
+            is YouTubeDownloadState.NeedsCaptcha -> {
+                // Launch captcha activity
+                val intent = YouTubeCaptchaActivity.createIntent(context, state.url)
+                captchaLauncher.launch(intent)
+            }
+            else -> {}
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -163,23 +216,9 @@ fun HomeScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = {
-                    // Support all common audio formats - ExoPlayer handles decoding
-                    filePickerLauncher.launch(arrayOf(
-                        "audio/mpeg",        // MP3
-                        "audio/wav",         // WAV
-                        "audio/x-wav",       // WAV alternate
-                        "audio/mp4",         // M4A
-                        "audio/x-m4a",       // M4A alternate
-                        "audio/aac",         // AAC
-                        "audio/flac",        // FLAC
-                        "audio/ogg",         // OGG Vorbis
-                        "audio/opus",        // Opus
-                        "audio/*"            // Fallback for any other audio
-                    ))
-                }
+                onClick = { viewModel.onShowAddSourceSheet() }
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Open audio file")
+                Icon(Icons.Default.Add, contentDescription = "Add audio")
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -475,6 +514,38 @@ fun HomeScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+
+    // Add source bottom sheet
+    if (uiState.showAddSourceSheet) {
+        AddSourceBottomSheet(
+            sheetState = bottomSheetState,
+            onDismiss = { viewModel.onDismissAddSourceSheet() },
+            onImportLocalFile = {
+                // Support all common audio formats - ExoPlayer handles decoding
+                filePickerLauncher.launch(arrayOf(
+                    "audio/mpeg",        // MP3
+                    "audio/wav",         // WAV
+                    "audio/x-wav",       // WAV alternate
+                    "audio/mp4",         // M4A
+                    "audio/x-m4a",       // M4A alternate
+                    "audio/aac",         // AAC
+                    "audio/flac",        // FLAC
+                    "audio/ogg",         // OGG Vorbis
+                    "audio/opus",        // Opus
+                    "audio/*"            // Fallback for any other audio
+                ))
+            },
+            onImportFromYouTube = { viewModel.onShowYouTubeUrlDialog() }
+        )
+    }
+
+    // YouTube URL dialog
+    if (uiState.showYouTubeUrlDialog) {
+        YouTubeUrlDialog(
+            onDismiss = { viewModel.onDismissYouTubeUrlDialog() },
+            onImport = { url -> viewModel.onYouTubeImport(url) }
         )
     }
 }

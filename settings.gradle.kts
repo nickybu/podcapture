@@ -18,6 +18,7 @@ dependencyResolutionManagement {
         google()
         mavenCentral()
         maven { url = uri("https://alphacephei.com/maven/") } // Vosk repository
+        maven { url = uri("https://jitpack.io") } // NewPipe Extractor
     }
 }
 

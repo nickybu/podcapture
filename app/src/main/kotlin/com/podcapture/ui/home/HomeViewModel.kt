@@ -13,6 +13,8 @@ import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.repository.CaptureRepository
 import com.podcapture.data.repository.PodcastRepository
 import com.podcapture.data.repository.TagRepository
+import com.podcapture.youtube.YouTubeDownloadManager
+import com.podcapture.youtube.YouTubeDownloadState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -120,7 +122,11 @@ data class HomeUiState(
     val editingAudioFileId: String? = null,  // AudioFile being tagged
     val newTagName: String = "",
     val showDeleteConfirmDialog: Boolean = false,
-    val episodeToDelete: RecentItem.EpisodeRecent? = null
+    val episodeToDelete: RecentItem.EpisodeRecent? = null,
+    // YouTube download state
+    val showAddSourceSheet: Boolean = false,
+    val showYouTubeUrlDialog: Boolean = false,
+    val youTubeDownloadState: YouTubeDownloadState = YouTubeDownloadState.Idle
 ) {
     // Filtered bookmark items based on filter type
     val filteredBookmarkItems: List<BookmarkItem>
@@ -176,7 +182,8 @@ class HomeViewModel(
     private val audioFileRepository: AudioFileRepository,
     private val captureRepository: CaptureRepository,
     private val tagRepository: TagRepository,
-    private val podcastRepository: PodcastRepository
+    private val podcastRepository: PodcastRepository,
+    private val youTubeDownloadManager: YouTubeDownloadManager
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState(isLoading = true))
@@ -192,6 +199,7 @@ class HomeViewModel(
         observeBookmarkedAudioFiles()
         observeEpisodeHistory()
         observeTags()
+        observeYouTubeDownloadState()
     }
 
     private fun observeAudioFiles() {
@@ -523,6 +531,63 @@ class HomeViewModel(
             showDeleteConfirmDialog = false,
             episodeToDelete = null
         )
+    }
+
+    // YouTube download methods
+    private fun observeYouTubeDownloadState() {
+        viewModelScope.launch {
+            youTubeDownloadManager.downloadState.collect { state ->
+                _uiState.value = _uiState.value.copy(youTubeDownloadState = state)
+
+                // Auto-navigate to player on completion
+                if (state is YouTubeDownloadState.Completed) {
+                    _uiState.value = _uiState.value.copy(navigateToPlayer = state.audioFileId)
+                }
+            }
+        }
+    }
+
+    fun onShowAddSourceSheet() {
+        _uiState.value = _uiState.value.copy(showAddSourceSheet = true)
+    }
+
+    fun onDismissAddSourceSheet() {
+        _uiState.value = _uiState.value.copy(showAddSourceSheet = false)
+    }
+
+    fun onShowYouTubeUrlDialog() {
+        _uiState.value = _uiState.value.copy(showYouTubeUrlDialog = true)
+    }
+
+    fun onDismissYouTubeUrlDialog() {
+        _uiState.value = _uiState.value.copy(showYouTubeUrlDialog = false)
+    }
+
+    fun onYouTubeImport(url: String) {
+        _uiState.value = _uiState.value.copy(showYouTubeUrlDialog = false)
+
+        val result = youTubeDownloadManager.startDownload(url)
+        if (result.isFailure) {
+            _uiState.value = _uiState.value.copy(
+                error = result.exceptionOrNull()?.message ?: "Failed to start download"
+            )
+        }
+    }
+
+    fun onCancelYouTubeDownload() {
+        youTubeDownloadManager.cancelDownload()
+    }
+
+    fun onYouTubeDownloadStateHandled() {
+        youTubeDownloadManager.resetState()
+    }
+
+    fun onCaptchaSolved() {
+        youTubeDownloadManager.onCaptchaSolved()
+    }
+
+    fun onCaptchaCancelled() {
+        youTubeDownloadManager.onCaptchaCancelled()
     }
 
     private fun formatDuration(ms: Long): String {
