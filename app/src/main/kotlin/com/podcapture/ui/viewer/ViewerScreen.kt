@@ -241,6 +241,7 @@ fun ViewerScreen(
                                 captureWithTags.capture.transcription,
                                 captureWithTags.capture.formattedTranscription
                             )
+                        },
                         onDeleteClick = {
                             viewModel.onRequestDeleteCapture(captureWithTags.capture)
                         }
@@ -422,6 +423,8 @@ private fun CaptureCard(
                             contentDescription = "Format transcript",
                             modifier = Modifier.size(18.dp),
                             tint = if (capture.formattedTranscription != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     // Delete button
                     IconButton(
                         onClick = { onDeleteClick() },
