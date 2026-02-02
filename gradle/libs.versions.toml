@@ -46,6 +46,10 @@ coil = "2.7.0"
 # Sherpa ONNX (Whisper support for Android)
 sherpaOnnx = "6.25.12"
 
+# Testing
+junit = "4.13.2"
+truth = "1.4.4"
+
 [libraries]
 # AndroidX Core
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -106,6 +110,10 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 
 # Sherpa ONNX (Whisper for Android)
 sherpa-onnx = { group = "com.bihe0832.android", name = "lib-sherpa-onnx", version.ref = "sherpaOnnx" }
+
+# Testing
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+truth = { group = "com.google.truth", name = "truth", version.ref = "truth" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

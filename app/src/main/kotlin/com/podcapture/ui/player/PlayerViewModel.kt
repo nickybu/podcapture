@@ -22,6 +22,7 @@ data class PlayerUiState(
     val playbackState: PlaybackState = PlaybackState(),
     val captures: List<Capture> = emptyList(),
     val captureWindowSeconds: Int = 30,
+    val captureWindowStep: Int = 5,
     val skipIntervalSeconds: Int = 10,
     val isCapturing: Boolean = false,
     val captureProgress: String? = null,
@@ -161,6 +162,11 @@ class PlayerViewModel(
             }
         }
         viewModelScope.launch {
+            settingsDataStore.captureWindowStep.collect { step ->
+                _uiState.value = _uiState.value.copy(captureWindowStep = step)
+            }
+        }
+        viewModelScope.launch {
             settingsDataStore.skipIntervalSeconds.collect { seconds ->
                 _uiState.value = _uiState.value.copy(skipIntervalSeconds = seconds)
             }
@@ -195,6 +201,24 @@ class PlayerViewModel(
 
     fun onSpeedChange(speed: Float) {
         audioPlayerService.setPlaybackSpeed(speed)
+    }
+
+    fun onCaptureWindowIncrease() {
+        val currentWindow = _uiState.value.captureWindowSeconds
+        val step = _uiState.value.captureWindowStep
+        val newWindow = (currentWindow + step).coerceAtMost(60)
+        viewModelScope.launch {
+            settingsDataStore.setCaptureWindowSeconds(newWindow)
+        }
+    }
+
+    fun onCaptureWindowDecrease() {
+        val currentWindow = _uiState.value.captureWindowSeconds
+        val step = _uiState.value.captureWindowStep
+        val newWindow = (currentWindow - step).coerceAtLeast(10)
+        viewModelScope.launch {
+            settingsDataStore.setCaptureWindowSeconds(newWindow)
+        }
     }
 
     fun onCapture() {

@@ -36,4 +36,7 @@ interface CaptureDao {
 
     @Query("UPDATE captures SET notes = :notes WHERE id = :id")
     suspend fun updateNotes(id: String, notes: String?)
+
+    @Query("UPDATE captures SET formattedTranscription = :formattedTranscription WHERE id = :id")
+    suspend fun updateFormattedTranscription(id: String, formattedTranscription: String?)
 }

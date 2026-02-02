@@ -5,7 +5,9 @@ import android.content.Intent
 import android.os.Build
 import com.podcapture.data.model.CachedEpisode
 import com.podcapture.data.model.EpisodeDownloadState
+import com.podcapture.data.model.Podcast
 import com.podcapture.data.repository.PodcastRepository
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -48,14 +50,20 @@ class DownloadManager(
 
     data class DownloadRequest(
         val episode: CachedEpisode,
-        val podcastTitle: String
+        val podcastTitle: String,
+        val podcast: Podcast? = null
     )
 
     /**
      * Start downloading an episode. The download will continue in the background
      * even if the user leaves the screen.
+     *
+     * @param episode The episode to download
+     * @param podcastTitle Title of the podcast for notifications
+     * @param podcast Optional podcast object - if provided and podcast is not bookmarked,
+     *                it will be auto-bookmarked to satisfy the database foreign key constraint
      */
-    fun downloadEpisode(episode: CachedEpisode, podcastTitle: String) {
+    fun downloadEpisode(episode: CachedEpisode, podcastTitle: String, podcast: Podcast? = null) {
         // Check if already downloading or downloaded
         val currentState = _downloadStates.value[episode.id]
         if (currentState?.state == EpisodeDownloadState.Downloading) {
@@ -78,7 +86,7 @@ class DownloadManager(
         }
 
         // Add to queue
-        val request = DownloadRequest(episode, podcastTitle)
+        val request = DownloadRequest(episode, podcastTitle, podcast)
         downloadQueue.add(request)
 
         // Update state to queued/downloading
@@ -159,7 +167,13 @@ class DownloadManager(
 
         scope.launch {
             try {
-                // Cache episode in database first
+                // Ensure podcast is bookmarked before caching episode (FK constraint)
+                val isBookmarked = podcastRepository.isPodcastBookmarked(request.episode.podcastId).first()
+                if (!isBookmarked && request.podcast != null) {
+                    podcastRepository.bookmarkPodcast(request.podcast)
+                }
+
+                // Cache episode in database
                 podcastRepository.cacheEpisode(request.episode)
 
                 // Download with progress updates

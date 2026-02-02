@@ -9,9 +9,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import com.podcapture.MainActivity
 import com.podcapture.R
 import org.koin.android.ext.android.inject
@@ -35,7 +37,33 @@ class EpisodeDownloadService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        // Create notification channel and start foreground IMMEDIATELY
+        // Use inline channel creation to avoid any lazy initialization delays
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.createNotificationChannel(
+                NotificationChannel(
+                    CHANNEL_ID,
+                    "Episode Downloads",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Shows progress of episode downloads"
+                    setShowBadge(false)
+                }
+            )
+        }
+
+        // Call startForeground immediately with service type for Android 14+
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            createBasicNotification(),
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            } else {
+                0
+            }
+        )
 
         // Register for notification updates
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -46,8 +74,31 @@ class EpisodeDownloadService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(NOTIFICATION_ID, createNotification())
+        // Update notification with actual download info
+        notificationManager.notify(NOTIFICATION_ID, createNotification())
         return START_STICKY
+    }
+
+    private fun createBasicNotification(): Notification {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Preparing download...")
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setProgress(100, 0, true)
+            .setOngoing(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .build()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

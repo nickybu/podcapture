@@ -109,9 +109,31 @@ class CaptureRepository(
         captureDao.updateNotes(captureId, notes)
     }
 
+    /**
+     * Deletes a capture without updating markdown file.
+     * Used when AudioFile is not available (e.g., podcast episodes).
+     */
+    suspend fun deleteCaptureSimple(captureId: String) {
+        captureDao.deleteCapture(captureId)
+    }
+
     fun getMarkdownContent(audioFile: AudioFile): String? =
         markdownManager.getMarkdownContent(audioFile)
 
     fun getMarkdownFilePath(audioFile: AudioFile): String =
         markdownManager.getMarkdownFilePath(audioFile)
+
+    suspend fun updateFormattedTranscription(captureId: String, formattedTranscription: String?, audioFile: AudioFile?) {
+        captureDao.updateFormattedTranscription(captureId, formattedTranscription)
+
+        // Update markdown file if audioFile is available
+        if (audioFile != null) {
+            val allCaptures = captureDao.getCapturesForFileOnce(audioFile.id)
+            markdownManager.updateMarkdownFile(audioFile, allCaptures)
+        }
+    }
+
+    suspend fun updateFormattedTranscriptionSimple(captureId: String, formattedTranscription: String?) {
+        captureDao.updateFormattedTranscription(captureId, formattedTranscription)
+    }
 }

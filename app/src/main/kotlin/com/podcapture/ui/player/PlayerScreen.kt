@@ -59,6 +59,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.podcapture.audio.PlayerState
 import com.podcapture.data.model.Capture
+import com.podcapture.ui.components.CaptureButtonWithControls
 import com.podcapture.ui.components.WaveformTimeline
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -206,12 +207,14 @@ fun PlayerScreen(
 
                     Spacer(modifier = Modifier.weight(1f))
 
-                    // Capture button
-                    CaptureButton(
+                    // Capture button with controls
+                    CaptureButtonWithControls(
                         windowSeconds = uiState.captureWindowSeconds,
                         isCapturing = uiState.isCapturing,
                         captureProgress = uiState.captureProgress,
-                        onCapture = { viewModel.onCapture() }
+                        onCapture = { viewModel.onCapture() },
+                        onWindowIncrease = { viewModel.onCaptureWindowIncrease() },
+                        onWindowDecrease = { viewModel.onCaptureWindowDecrease() }
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -343,55 +346,6 @@ private fun PlaybackControls(
                 Text("${skipIntervalSeconds}s", style = MaterialTheme.typography.labelSmall)
             }
         }
-    }
-}
-
-@Composable
-private fun CaptureButton(
-    windowSeconds: Int,
-    isCapturing: Boolean,
-    captureProgress: String?,
-    onCapture: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Button(
-            onClick = onCapture,
-            enabled = !isCapturing,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.tertiary
-            )
-        ) {
-            if (isCapturing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onTertiary,
-                    strokeWidth = 2.dp
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(captureProgress ?: "Capturing...")
-            } else {
-                Text(
-                    text = "CAPTURE",
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = "Window: ±${windowSeconds}s (change in Settings)",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 

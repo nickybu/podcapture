@@ -28,7 +28,7 @@ import com.podcapture.data.model.Tag
         EpisodePlaybackHistory::class,
         PodcastTag::class
     ],
-    version = 8,
+    version = 9,
     exportSchema = true
 )
 abstract class PodCaptureDatabase : RoomDatabase() {
@@ -230,6 +230,15 @@ abstract class PodCaptureDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 8 to 9: Add formattedTranscription column to captures
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE captures ADD COLUMN formattedTranscription TEXT DEFAULT NULL"
+                )
+            }
+        }
+
         fun getInstance(context: Context): PodCaptureDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: buildDatabase(context).also { INSTANCE = it }
@@ -242,7 +251,7 @@ abstract class PodCaptureDatabase : RoomDatabase() {
                 PodCaptureDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .build()
         }
     }

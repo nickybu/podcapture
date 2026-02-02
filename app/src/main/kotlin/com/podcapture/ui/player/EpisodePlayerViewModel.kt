@@ -29,6 +29,7 @@ data class EpisodePlayerUiState(
     val playbackState: PlaybackState = PlaybackState(),
     val skipIntervalSeconds: Int = 10,
     val captureWindowSeconds: Int = 30,
+    val captureWindowStep: Int = 5,
     val isLoading: Boolean = true,
     val showNotes: Boolean = false,
     val error: String? = null,
@@ -177,6 +178,11 @@ class EpisodePlayerViewModel(
                 _uiState.value = _uiState.value.copy(captureWindowSeconds = seconds)
             }
         }
+        viewModelScope.launch {
+            settingsDataStore.captureWindowStep.collect { step ->
+                _uiState.value = _uiState.value.copy(captureWindowStep = step)
+            }
+        }
     }
 
     private fun observeCaptures() {
@@ -248,6 +254,24 @@ class EpisodePlayerViewModel(
 
     fun onSpeedChange(speed: Float) {
         audioPlayerService.setPlaybackSpeed(speed)
+    }
+
+    fun onCaptureWindowIncrease() {
+        val currentWindow = _uiState.value.captureWindowSeconds
+        val step = _uiState.value.captureWindowStep
+        val newWindow = (currentWindow + step).coerceAtMost(60)
+        viewModelScope.launch {
+            settingsDataStore.setCaptureWindowSeconds(newWindow)
+        }
+    }
+
+    fun onCaptureWindowDecrease() {
+        val currentWindow = _uiState.value.captureWindowSeconds
+        val step = _uiState.value.captureWindowStep
+        val newWindow = (currentWindow - step).coerceAtLeast(10)
+        viewModelScope.launch {
+            settingsDataStore.setCaptureWindowSeconds(newWindow)
+        }
     }
 
     fun toggleShowNotes() {

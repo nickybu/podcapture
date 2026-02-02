@@ -115,4 +115,8 @@ dependencies {
 
     // Sherpa ONNX (Whisper for speech recognition)
     implementation(libs.sherpa.onnx)
+
+    // Testing
+    testImplementation(libs.junit)
+    testImplementation(libs.truth)
 }

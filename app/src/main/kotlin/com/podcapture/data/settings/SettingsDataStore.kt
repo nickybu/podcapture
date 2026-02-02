@@ -17,6 +17,7 @@ class SettingsDataStore(private val context: Context) {
 
     companion object {
         private val CAPTURE_WINDOW_SECONDS = intPreferencesKey("capture_window_seconds")
+        private val CAPTURE_WINDOW_STEP = intPreferencesKey("capture_window_step")
         private val SKIP_INTERVAL_SECONDS = intPreferencesKey("skip_interval_seconds")
         private val OBSIDIAN_VAULT_URI = stringPreferencesKey("obsidian_vault_uri")
         private val OBSIDIAN_DEFAULT_TAGS = stringPreferencesKey("obsidian_default_tags")
@@ -27,6 +28,7 @@ class SettingsDataStore(private val context: Context) {
         private val THEME_ACCENT1_COLOR = stringPreferencesKey("theme_accent1_color")
         private val THEME_ACCENT2_COLOR = stringPreferencesKey("theme_accent2_color")
         const val DEFAULT_CAPTURE_WINDOW = 30
+        const val DEFAULT_CAPTURE_WINDOW_STEP = 5
         const val DEFAULT_SKIP_INTERVAL = 10
         const val DEFAULT_OBSIDIAN_TAGS = "inbox/, resources/references/podcasts"
         const val DEFAULT_THEME_BACKGROUND = "#13293D"
@@ -37,6 +39,11 @@ class SettingsDataStore(private val context: Context) {
     val captureWindowSeconds: Flow<Int> = context.dataStore.data
         .map { preferences ->
             preferences[CAPTURE_WINDOW_SECONDS] ?: DEFAULT_CAPTURE_WINDOW
+        }
+
+    val captureWindowStep: Flow<Int> = context.dataStore.data
+        .map { preferences ->
+            preferences[CAPTURE_WINDOW_STEP] ?: DEFAULT_CAPTURE_WINDOW_STEP
         }
 
     val skipIntervalSeconds: Flow<Int> = context.dataStore.data
@@ -113,6 +120,12 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setCaptureWindowSeconds(seconds: Int) {
         context.dataStore.edit { preferences ->
             preferences[CAPTURE_WINDOW_SECONDS] = seconds
+        }
+    }
+
+    suspend fun setCaptureWindowStep(seconds: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[CAPTURE_WINDOW_STEP] = seconds
         }
     }
 

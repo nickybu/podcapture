@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 
 data class SettingsUiState(
     val captureWindowSeconds: Int = 30,
+    val captureWindowStep: Int = 5,
     val skipIntervalSeconds: Int = 10,
     val obsidianVaultUri: String = "",
     val obsidianVaultDisplayName: String = "",
@@ -55,6 +56,13 @@ class SettingsViewModel(
                 _uiState.value = _uiState.value.copy(
                     captureWindowSeconds = seconds,
                     isLoading = false
+                )
+            }
+        }
+        viewModelScope.launch {
+            settingsDataStore.captureWindowStep.collect { step ->
+                _uiState.value = _uiState.value.copy(
+                    captureWindowStep = step
                 )
             }
         }
@@ -116,6 +124,12 @@ class SettingsViewModel(
     fun setCaptureWindowSeconds(seconds: Int) {
         viewModelScope.launch {
             settingsDataStore.setCaptureWindowSeconds(seconds)
+        }
+    }
+
+    fun setCaptureWindowStep(seconds: Int) {
+        viewModelScope.launch {
+            settingsDataStore.setCaptureWindowStep(seconds)
         }
     }
 

@@ -30,8 +30,10 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -57,13 +59,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.podcapture.R
 import com.podcapture.data.model.Capture
 import com.podcapture.data.model.Tag
+import com.podcapture.ui.components.FormattedTranscriptText
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 import java.io.File
@@ -232,6 +234,16 @@ fun ViewerScreen(
                         },
                         onTagClick = {
                             viewModel.onOpenTagDialog(captureWithTags.capture.id)
+                        },
+                        onFormatClick = {
+                            viewModel.onEditTranscript(
+                                captureWithTags.capture.id,
+                                captureWithTags.capture.transcription,
+                                captureWithTags.capture.formattedTranscription
+                            )
+                        },
+                        onDeleteClick = {
+                            viewModel.onRequestDeleteCapture(captureWithTags.capture)
                         }
                     )
                 }
@@ -248,6 +260,18 @@ fun ViewerScreen(
             )
         }
 
+        // Transcript formatting dialog
+        if (uiState.editingTranscriptCaptureId != null) {
+            TranscriptEditDialog(
+                formattedText = uiState.editingFormattedTranscript,
+                originalTranscription = uiState.editingOriginalTranscription,
+                validationError = uiState.transcriptValidationError,
+                onTextChanged = viewModel::onFormattedTranscriptChanged,
+                onSave = viewModel::onSaveFormattedTranscript,
+                onDismiss = viewModel::onDismissTranscriptEdit
+            )
+        }
+
         // Tag editing dialog
         if (uiState.showTagDialog) {
             val editingCapture = uiState.capturesWithTags.find { it.capture.id == uiState.editingTagsCaptureId }
@@ -260,6 +284,27 @@ fun ViewerScreen(
                 onToggleTag = viewModel::onToggleTagForCapture,
                 onDeleteTag = viewModel::onDeleteTag,
                 onDismiss = viewModel::onCloseTagDialog
+            )
+        }
+
+        // Delete capture confirmation dialog
+        if (uiState.showDeleteConfirmDialog && uiState.captureToDelete != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.onDismissDeleteDialog() },
+                title = { Text("Delete Capture") },
+                text = {
+                    Text("Are you sure you want to delete this capture? This action cannot be undone.")
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.onConfirmDeleteCapture() }) {
+                        Text("Delete", color = MaterialTheme.colorScheme.error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.onDismissDeleteDialog() }) {
+                        Text("Cancel")
+                    }
+                }
             )
         }
 
@@ -316,6 +361,8 @@ private fun CaptureCard(
     onClick: () -> Unit,
     onEditNotes: () -> Unit,
     onTagClick: () -> Unit,
+    onFormatClick: () -> Unit,
+    onDeleteClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -364,6 +411,30 @@ private fun CaptureCard(
                             contentDescription = if (capture.notes.isNullOrBlank()) "Add notes" else "Edit notes",
                             modifier = Modifier.size(18.dp),
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    // Format transcript button
+                    IconButton(
+                        onClick = { onFormatClick() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.FormatQuote,
+                            contentDescription = "Format transcript",
+                            modifier = Modifier.size(18.dp),
+                            tint = if (capture.formattedTranscription != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    // Delete button
+                    IconButton(
+                        onClick = { onDeleteClick() },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = "Delete capture",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                     Spacer(modifier = Modifier.width(4.dp))
@@ -473,15 +544,14 @@ private fun CaptureCard(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            // Transcription
+            // Transcription (use formatted version if available)
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Text(
-                    text = capture.transcription,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontStyle = if (capture.transcription.startsWith("[")) FontStyle.Italic else FontStyle.Normal,
+                FormattedTranscriptText(
+                    text = capture.formattedTranscription ?: capture.transcription,
+                    isErrorMessage = capture.transcription.startsWith("["),
                     modifier = Modifier.padding(12.dp)
                 )
             }

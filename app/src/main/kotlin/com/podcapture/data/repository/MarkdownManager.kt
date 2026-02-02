@@ -94,7 +94,8 @@ class MarkdownManager(
 
             sb.appendLine("### Transcription")
             sb.appendLine()
-            sb.appendLine("> ${capture.transcription.replace("\n", "\n> ")}")
+            val transcriptionText = capture.formattedTranscription ?: capture.transcription
+            sb.appendLine("> ${transcriptionText.replace("\n", "\n> ")}")
             sb.appendLine()
             sb.appendLine("---")
             sb.appendLine()
@@ -167,7 +168,8 @@ class MarkdownManager(
 
             sb.appendLine("### Transcription")
             sb.appendLine()
-            sb.appendLine("> ${capture.transcription.replace("\n", "\n> ")}")
+            val transcriptionText = capture.formattedTranscription ?: capture.transcription
+            sb.appendLine("> ${transcriptionText.replace("\n", "\n> ")}")
             sb.appendLine()
             sb.appendLine("---")
             sb.appendLine()
@@ -240,7 +242,8 @@ class MarkdownManager(
 
             sb.appendLine("### Transcription")
             sb.appendLine()
-            sb.appendLine("> ${capture.transcription.replace("\n", "\n> ")}")
+            val transcriptionText = capture.formattedTranscription ?: capture.transcription
+            sb.appendLine("> ${transcriptionText.replace("\n", "\n> ")}")
             sb.appendLine()
             sb.appendLine("---")
             sb.appendLine()

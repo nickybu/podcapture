@@ -80,6 +80,7 @@ import androidx.core.text.HtmlCompat
 import coil.compose.AsyncImage
 import com.podcapture.audio.PlayerState
 import com.podcapture.data.model.Capture
+import com.podcapture.ui.components.CaptureButtonWithControls
 import com.podcapture.ui.components.WaveformTimeline
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -432,13 +433,15 @@ fun EpisodePlayerScreen(
                             onDownload = { viewModel.onDownload() }
                         )
                     } else {
-                        // Capture button (only when downloaded)
-                        EpisodeCaptureButton(
+                        // Capture button with controls (only when downloaded)
+                        CaptureButtonWithControls(
                             windowSeconds = uiState.captureWindowSeconds,
                             isCapturing = uiState.isCapturing,
                             captureProgress = uiState.captureProgress,
-                            isDownloaded = uiState.localFilePath != null,
-                            onCapture = { viewModel.onCapture() }
+                            enabled = uiState.localFilePath != null,
+                            onCapture = { viewModel.onCapture() },
+                            onWindowIncrease = { viewModel.onCaptureWindowIncrease() },
+                            onWindowDecrease = { viewModel.onCaptureWindowDecrease() }
                         )
                     }
 
@@ -785,61 +788,6 @@ private fun ShowNotesSection(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun EpisodeCaptureButton(
-    windowSeconds: Int,
-    isCapturing: Boolean,
-    captureProgress: String?,
-    isDownloaded: Boolean,
-    onCapture: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Button(
-            onClick = onCapture,
-            enabled = !isCapturing && isDownloaded,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.tertiary,
-                disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant
-            )
-        ) {
-            if (isCapturing) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onTertiary,
-                    strokeWidth = 2.dp
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(captureProgress ?: "Capturing...")
-            } else {
-                Text(
-                    text = "CAPTURE",
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        Text(
-            text = if (isDownloaded) {
-                "Window: ±${windowSeconds}s"
-            } else {
-                "Download episode to enable capture"
-            },
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
     }
 }
 
