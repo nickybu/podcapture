@@ -18,5 +18,6 @@ data class Capture(
     val windowEndMs: Long,             // Capture window end
     val transcription: String,         // Transcribed text from Vosk
     val notes: String? = null,         // User's notes about this capture
-    val createdAt: Long                // Epoch millis when captured
+    val createdAt: Long,               // Epoch millis when captured
+    val formattedTranscription: String? = null  // Markdown-formatted version with == and ** markers
 )

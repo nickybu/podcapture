@@ -102,3 +102,6 @@ val WaveformUnplayed = Color(0xFF4A6B82)   // Unplayed waveform bars
 val WaveformPlayed = Color(0xFF3E92CC)     // Played waveform bars (ocean blue)
 val PlayheadColor = Color(0xFFFF8A7A)      // Playhead indicator (coral)
 val CaptureMarkerColor = Color(0xFFFFB74D) // Capture point markers (amber)
+
+// ============ Transcript Formatting Colors ============
+val HighlightYellow = Color(0x4DFF9800)    // Highlight background color (orange with 30% opacity)
