@@ -54,7 +54,10 @@ data class ViewerUiState(
     val obsidianPreview: String = "",
     val obsidianVaultUri: String = "",
     val obsidianDefaultTags: String = "inbox/, resources/references/podcasts",
-    val obsidianExportResult: ObsidianExportResult? = null
+    val obsidianExportResult: ObsidianExportResult? = null,
+    // Delete capture state
+    val showDeleteConfirmDialog: Boolean = false,
+    val captureToDelete: Capture? = null
 ) {
     // Helper property for backwards compatibility
     val captures: List<Capture> get() = capturesWithTags.map { it.capture }
@@ -479,5 +482,36 @@ class ViewerViewModel(
 
     fun clearExportResult() {
         _uiState.value = _uiState.value.copy(obsidianExportResult = null)
+    }
+
+    // Delete capture
+    fun onRequestDeleteCapture(capture: Capture) {
+        _uiState.value = _uiState.value.copy(
+            showDeleteConfirmDialog = true,
+            captureToDelete = capture
+        )
+    }
+
+    fun onConfirmDeleteCapture() {
+        val capture = _uiState.value.captureToDelete ?: return
+        viewModelScope.launch {
+            val audioFile = _uiState.value.audioFile
+            if (audioFile != null) {
+                captureRepository.deleteCapture(capture.id, audioFile)
+            } else {
+                captureRepository.deleteCaptureSimple(capture.id)
+            }
+            _uiState.value = _uiState.value.copy(
+                showDeleteConfirmDialog = false,
+                captureToDelete = null
+            )
+        }
+    }
+
+    fun onDismissDeleteDialog() {
+        _uiState.value = _uiState.value.copy(
+            showDeleteConfirmDialog = false,
+            captureToDelete = null
+        )
     }
 }
