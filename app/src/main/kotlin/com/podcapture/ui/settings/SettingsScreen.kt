@@ -271,11 +271,11 @@ fun SettingsScreen(
                         .padding(16.dp)
                 ) {
                     Text(
-                        text = "Capture Window",
+                        text = "Capture Step",
                         style = MaterialTheme.typography.titleSmall
                     )
                     Text(
-                        text = "Amount of audio before and after the capture point to transcribe",
+                        text = "Amount to adjust capture window when tapping +/- buttons",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -283,19 +283,18 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     NumberPicker(
-                        value = uiState.captureWindowSeconds,
-                        onValueChange = { viewModel.setCaptureWindowSeconds(it) },
-                        minValue = 10,
-                        maxValue = 60,
+                        value = uiState.captureWindowStep,
+                        onValueChange = { viewModel.setCaptureWindowStep(it) },
+                        minValue = 5,
+                        maxValue = 15,
                         step = 5,
-                        suffix = "s",
-                        displayTransform = { "±$it" }
+                        suffix = "s"
                     )
 
                     Spacer(modifier = Modifier.height(8.dp))
 
                     Text(
-                        text = "Total capture: ${uiState.captureWindowSeconds * 2} seconds",
+                        text = "Capture window is adjusted directly on the player screen",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth(),

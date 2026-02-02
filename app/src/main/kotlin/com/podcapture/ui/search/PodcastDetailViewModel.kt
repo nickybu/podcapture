@@ -321,17 +321,34 @@ class PodcastDetailViewModel(
     /**
      * Start downloading an episode using the background DownloadManager.
      * Downloads continue even if the user leaves this screen.
-     * If the podcast is not bookmarked, it will be auto-bookmarked to satisfy
-     * the database foreign key constraint.
+     * Auto-bookmarks the podcast if not already bookmarked (required for caching episodes).
      */
     fun onDownloadEpisode(episodeId: Long) {
         val episode = _uiState.value.episodes.find { it.episode.id == episodeId }?.episode ?: return
-        val podcast = _uiState.value.podcast
-        val podcastTitle = podcast?.title ?: ""
+        val podcast = _uiState.value.podcast ?: return
+        val podcastTitle = podcast.title
 
-        // Use DownloadManager for background downloads
-        // Pass the podcast so it can be auto-bookmarked if needed
-        downloadManager.downloadEpisode(episode, podcastTitle, podcast)
+        viewModelScope.launch {
+            // Auto-bookmark if not already bookmarked (episodes require podcast to be bookmarked)
+            if (!_uiState.value.isBookmarked) {
+                podcastRepository.bookmarkPodcast(podcast).fold(
+                    onSuccess = {
+                        // Now download the episode
+                        downloadManager.downloadEpisode(episode, podcastTitle)
+                        // Switch to cached episodes
+                        observeCachedEpisodes()
+                    },
+                    onFailure = { error ->
+                        _uiState.value = _uiState.value.copy(
+                            error = error.message ?: "Failed to bookmark podcast for download"
+                        )
+                    }
+                )
+            } else {
+                // Already bookmarked, just download
+                downloadManager.downloadEpisode(episode, podcastTitle)
+            }
+        }
     }
 
     // Tag management
