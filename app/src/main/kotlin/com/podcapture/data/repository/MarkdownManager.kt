@@ -65,11 +65,8 @@ class MarkdownManager(
         val sb = StringBuilder()
 
         // Header
-        sb.appendLine("# Captures: ${audioFile.name}")
-        sb.appendLine()
-        sb.appendLine("**Source:** ${audioFile.filePath}")
         sb.appendLine("**Duration:** ${formatDuration(audioFile.durationMs)}")
-        sb.appendLine("**Generated:** ${dateFormat.format(Date())}")
+        sb.appendLine("**Imported on:** [[${dateFormat.format(Date())}]]")
         sb.appendLine()
         sb.appendLine("---")
         sb.appendLine()
@@ -136,14 +133,10 @@ class MarkdownManager(
         sb.appendLine()
         sb.appendLine()
 
-        // Title
-        sb.appendLine("# $title")
-        sb.appendLine()
-        sb.appendLine("**Source:** ${audioFile.filePath}")
         sb.appendLine("**Duration:** ${formatDuration(audioFile.durationMs)}")
         audioFile.firstPlayedAt?.let { sb.appendLine("**First listened:** ${dateFormat.format(Date(it))}") }
         audioFile.lastPlayedAt?.let { sb.appendLine("**Last listened:** ${dateFormat.format(Date(it))}") }
-        sb.appendLine("**Generated:** ${dateFormat.format(Date())}")
+        sb.appendLine("**Imported on:** [[${dateFormat.format(Date())}]]")
         sb.appendLine()
         sb.appendLine("---")
         sb.appendLine()
@@ -212,12 +205,9 @@ class MarkdownManager(
         sb.appendLine()
         sb.appendLine()
 
-        // Title
-        sb.appendLine("# $title")
-        sb.appendLine()
         firstListenedAt?.let { sb.appendLine("**First listened:** ${dateFormat.format(Date(it))}") }
         lastListenedAt?.let { sb.appendLine("**Last listened:** ${dateFormat.format(Date(it))}") }
-        sb.appendLine("**Generated:** ${dateFormat.format(Date())}")
+        sb.appendLine("**Imported on:** [[${dateFormat.format(Date())}]]")
         sb.appendLine()
         sb.appendLine("---")
         sb.appendLine()
