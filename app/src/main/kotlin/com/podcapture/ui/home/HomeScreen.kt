@@ -4,7 +4,9 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1165,7 +1167,9 @@ private fun RecentFilterChips(
 
 /**
  * Card for a recent item (audio file or episode).
+ * Long pressing a downloaded episode opens the delete confirmation dialog.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RecentItemCard(
     item: RecentItem,
@@ -1178,16 +1182,23 @@ private fun RecentItemCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .clickable {
-                when (item) {
-                    is RecentItem.AudioFileRecent -> {
-                        // Extract the original file ID (remove "file_" prefix)
-                        val fileId = item.id.removePrefix("file_")
-                        onFileClick(fileId)
+            .combinedClickable(
+                onClick = {
+                    when (item) {
+                        is RecentItem.AudioFileRecent -> {
+                            // Extract the original file ID (remove "file_" prefix)
+                            val fileId = item.id.removePrefix("file_")
+                            onFileClick(fileId)
+                        }
+                        is RecentItem.EpisodeRecent -> onEpisodeClick(item.episodeId, item.podcastId)
                     }
-                    is RecentItem.EpisodeRecent -> onEpisodeClick(item.episodeId, item.podcastId)
+                },
+                onLongClick = {
+                    if (item is RecentItem.EpisodeRecent && item.isDownloaded) {
+                        onDeleteClick(item)
+                    }
                 }
-            },
+            ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
