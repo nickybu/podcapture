@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -86,6 +87,10 @@ class AudioPlayerService(
             }
         }
 
+        override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+            _playbackState.value = _playbackState.value.copy(playbackSpeed = playbackParameters.speed)
+        }
+
         override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
             _playbackState.value = _playbackState.value.copy(
                 playerState = PlayerState.ERROR,
@@ -116,8 +121,7 @@ class AudioPlayerService(
         _playbackState.value = _playbackState.value.copy(
             playerState = state,
             currentPositionMs = controller.currentPosition,
-            durationMs = controller.duration.coerceAtLeast(0L),
-            playbackSpeed = controller.playbackParameters.speed
+            durationMs = controller.duration.coerceAtLeast(0L)
         )
     }
 
