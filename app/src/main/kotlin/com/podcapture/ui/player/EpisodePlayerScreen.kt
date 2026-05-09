@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ExpandLess
@@ -191,6 +192,17 @@ fun EpisodePlayerScreen(
                     }
                 },
                 actions = {
+                    // Finished indicator
+                    if (uiState.isFinished) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = "Episode finished",
+                            modifier = Modifier
+                                .padding(horizontal = 8.dp)
+                                .size(24.dp),
+                            tint = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
                     // Captures count button
                     if (uiState.captures.isNotEmpty()) {
                         TextButton(onClick = { onNavigateToViewer(virtualAudioFileId, null) }) {
