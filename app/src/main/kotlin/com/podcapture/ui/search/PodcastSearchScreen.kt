@@ -21,8 +21,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -35,6 +37,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -76,6 +80,16 @@ fun PodcastSearchScreen(
         }
     }
 
+    if (uiState.showRssDialog) {
+        RssFeedDialog(
+            url = uiState.rssUrl,
+            isLoading = uiState.isImportingRss,
+            onUrlChanged = viewModel::onRssUrlChanged,
+            onConfirm = viewModel::onImportRssUrl,
+            onDismiss = viewModel::onDismissRssDialog
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -95,6 +109,25 @@ fun PodcastSearchScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
+            // + button above search field
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(onClick = viewModel::onShowRssDialog) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Add private podcast")
+                }
+            }
+
             // Search bar
             OutlinedTextField(
                 value = uiState.query,
@@ -450,4 +483,67 @@ private fun formatDuration(durationSeconds: Int): String {
     } else {
         "${minutes}m"
     }
+}
+
+@Composable
+private fun RssFeedDialog(
+    url: String,
+    isLoading: Boolean,
+    onUrlChanged: (String) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Private Podcast") },
+        text = {
+            Column {
+                Text(
+                    text = "Enter the RSS feed URL of your private podcast.",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = onUrlChanged,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("https://example.com/feed.rss") },
+                    singleLine = true,
+                    enabled = !isLoading,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { onConfirm() })
+                )
+                if (isLoading) {
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text(
+                            text = "Loading feed…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                enabled = url.isNotBlank() && !isLoading
+            ) {
+                Text("Import")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !isLoading) {
+                Text("Cancel")
+            }
+        }
+    )
 }
