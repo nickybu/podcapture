@@ -253,7 +253,8 @@ class PodcastRepository(
             positionMs = existing?.positionMs ?: 0,
             firstPlayedAt = existing?.firstPlayedAt ?: System.currentTimeMillis(),
             lastPlayedAt = System.currentTimeMillis(),
-            localFilePath = localFilePath ?: existing?.localFilePath
+            localFilePath = localFilePath ?: existing?.localFilePath,
+            isFinished = existing?.isFinished ?: false
         )
 
         podcastDao.insertPlaybackHistory(history)
@@ -261,6 +262,14 @@ class PodcastRepository(
 
     suspend fun updatePlaybackPosition(episodeId: Long, positionMs: Long) = withContext(Dispatchers.IO) {
         podcastDao.updatePlaybackPosition(episodeId, positionMs)
+    }
+
+    suspend fun markEpisodeFinished(episodeId: Long) = withContext(Dispatchers.IO) {
+        podcastDao.markEpisodeFinished(episodeId)
+    }
+
+    fun getPlaybackHistoryForPodcast(podcastId: Long): Flow<List<EpisodePlaybackHistory>> {
+        return podcastDao.getPlaybackHistoryForPodcast(podcastId)
     }
 
     suspend fun getPlaybackHistoryForEpisode(episodeId: Long): EpisodePlaybackHistory? {

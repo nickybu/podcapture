@@ -28,7 +28,7 @@ import com.podcapture.data.model.Tag
         EpisodePlaybackHistory::class,
         PodcastTag::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = true
 )
 abstract class PodCaptureDatabase : RoomDatabase() {
@@ -239,6 +239,15 @@ abstract class PodCaptureDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 9 to 10: Add isFinished column to episode_playback_history
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    "ALTER TABLE episode_playback_history ADD COLUMN isFinished INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun getInstance(context: Context): PodCaptureDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: buildDatabase(context).also { INSTANCE = it }
@@ -251,7 +260,7 @@ abstract class PodCaptureDatabase : RoomDatabase() {
                 PodCaptureDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .build()
         }
     }

@@ -42,7 +42,9 @@ data class EpisodePlayerUiState(
     val localFilePath: String? = null,  // For checking if episode is downloaded
     // Download state
     val downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
-    val downloadProgress: Int = 0
+    val downloadProgress: Int = 0,
+    // Playback completion
+    val isFinished: Boolean = false
 )
 
 class EpisodePlayerViewModel(
@@ -59,6 +61,10 @@ class EpisodePlayerViewModel(
 
     private val _uiState = MutableStateFlow(EpisodePlayerUiState())
     val uiState: StateFlow<EpisodePlayerUiState> = _uiState.asStateFlow()
+
+    companion object {
+        private const val FINISH_THRESHOLD_MS = 30_000L
+    }
 
     init {
         loadEpisode()
@@ -119,9 +125,13 @@ class EpisodePlayerViewModel(
                     return@launch
                 }
 
-                // Get saved position and podcast title from history
+                // Get saved position and finished state from history
                 val history = podcastRepository.getPlaybackHistoryForEpisode(episodeId)
-                val resumePosition = history?.positionMs ?: 0L
+                val wasFinished = history?.isFinished ?: false
+                // Resume from saved position; restart from beginning if previously finished
+                val resumePosition = if (wasFinished) 0L else (history?.positionMs ?: 0L)
+
+                _uiState.value = _uiState.value.copy(isFinished = wasFinished)
 
                 // Record playback history
                 if (podcast != null) {
@@ -163,6 +173,16 @@ class EpisodePlayerViewModel(
         viewModelScope.launch {
             audioPlayerService.playbackState.collect { state ->
                 _uiState.value = _uiState.value.copy(playbackState = state)
+
+                // Detect completion: position within threshold of end while this episode is loaded
+                if (!_uiState.value.isFinished &&
+                    state.durationMs > 0 &&
+                    state.currentPositionMs >= state.durationMs - FINISH_THRESHOLD_MS &&
+                    audioPlayerService.currentAudioFileId.value == "episode_$episodeId"
+                ) {
+                    _uiState.value = _uiState.value.copy(isFinished = true)
+                    podcastRepository.markEpisodeFinished(episodeId)
+                }
             }
         }
     }
@@ -283,6 +303,11 @@ class EpisodePlayerViewModel(
             val position = audioPlayerService.getCurrentPosition()
             if (position > 0) {
                 podcastRepository.updatePlaybackPosition(episodeId, position)
+                val duration = audioPlayerService.getDuration()
+                if (!_uiState.value.isFinished && duration > 0 && position >= duration - FINISH_THRESHOLD_MS) {
+                    podcastRepository.markEpisodeFinished(episodeId)
+                    _uiState.value = _uiState.value.copy(isFinished = true)
+                }
             }
         }
     }

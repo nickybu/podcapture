@@ -35,7 +35,8 @@ data class EpisodePlaybackHistory(
     val positionMs: Long = 0,          // Last playback position
     val firstPlayedAt: Long = System.currentTimeMillis(),
     val lastPlayedAt: Long = System.currentTimeMillis(),
-    val localFilePath: String? = null  // If downloaded locally
+    val localFilePath: String? = null, // If downloaded locally
+    val isFinished: Boolean = false    // True when listened to the end
 )
 
 /**

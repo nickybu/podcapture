@@ -132,6 +132,12 @@ interface PodcastDao {
     @Query("UPDATE episode_playback_history SET positionMs = :positionMs, lastPlayedAt = :lastPlayedAt WHERE episodeId = :episodeId")
     suspend fun updatePlaybackPosition(episodeId: Long, positionMs: Long, lastPlayedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE episode_playback_history SET isFinished = 1, lastPlayedAt = :lastPlayedAt WHERE episodeId = :episodeId")
+    suspend fun markEpisodeFinished(episodeId: Long, lastPlayedAt: Long = System.currentTimeMillis())
+
+    @Query("SELECT * FROM episode_playback_history WHERE podcastId = :podcastId")
+    fun getPlaybackHistoryForPodcast(podcastId: Long): Flow<List<EpisodePlaybackHistory>>
+
     @Query("DELETE FROM episode_playback_history WHERE episodeId = :episodeId")
     suspend fun deletePlaybackHistory(episodeId: Long)
 

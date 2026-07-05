@@ -23,7 +23,8 @@ data class EpisodeUiItem(
     val downloadState: EpisodeDownloadState = EpisodeDownloadState.NotDownloaded,
     val downloadProgress: Int = 0,
     val downloadedBytes: Long = 0L,
-    val totalBytes: Long = 0L
+    val totalBytes: Long = 0L,
+    val isFinished: Boolean = false
 )
 
 data class PodcastDetailUiState(
@@ -62,6 +63,7 @@ class PodcastDetailViewModel(
         observeBookmarkState()
         observeTags()
         observeDownloadStates()
+        observePlaybackHistory()
     }
 
     private fun loadPodcast() {
@@ -179,6 +181,26 @@ class PodcastDetailViewModel(
                             item.copy(downloadState = EpisodeDownloadState.NotDownloaded)
                         }
                     }
+                }
+
+                _uiState.value = _uiState.value.copy(
+                    episodes = updatedEpisodes,
+                    filteredEpisodes = updatedFiltered
+                )
+            }
+        }
+    }
+
+    private fun observePlaybackHistory() {
+        viewModelScope.launch {
+            podcastRepository.getPlaybackHistoryForPodcast(podcastId).collect { historyList ->
+                val finishedIds = historyList.filter { it.isFinished }.map { it.episodeId }.toSet()
+
+                val updatedEpisodes = _uiState.value.episodes.map { item ->
+                    item.copy(isFinished = item.episode.id in finishedIds)
+                }
+                val updatedFiltered = _uiState.value.filteredEpisodes?.map { item ->
+                    item.copy(isFinished = item.episode.id in finishedIds)
                 }
 
                 _uiState.value = _uiState.value.copy(
