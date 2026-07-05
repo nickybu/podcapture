@@ -16,6 +16,7 @@ import com.podcapture.data.model.Tag
 import com.podcapture.data.model.toDomain
 import com.podcapture.data.opml.OpmlFeed
 import com.podcapture.data.opml.OpmlManager
+import com.podcapture.data.rss.RssFeedParser
 import com.podcapture.data.settings.SettingsDataStore
 import java.io.InputStream
 import java.io.OutputStream
@@ -441,6 +442,112 @@ class PodcastRepository(
         val audioFileId = "episode_$episodeId"
         val audioFile = audioFileDao.getFileById(audioFileId)
         audioFile != null
+    }
+
+    // ============ Private RSS Feed Import ============
+
+    private val rssFeedParser = RssFeedParser()
+
+    /**
+     * Imports a podcast from an RSS feed URL.
+     * First tries Podcast Index API lookup (works for public podcasts).
+     * Falls back to direct RSS parsing for private/unlisted podcasts.
+     * Returns a human-readable result message.
+     */
+    suspend fun importFromRssUrl(feedUrl: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val trimmedUrl = feedUrl.trim()
+
+            // Try Podcast Index API first (handles public podcasts with episode caching)
+            val apiResult = tryImportViaApi(trimmedUrl)
+            if (apiResult != null) return@withContext apiResult
+
+            // Fall back to direct RSS parsing for private/unlisted feeds
+            importViaRssParsing(trimmedUrl)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    private suspend fun tryImportViaApi(feedUrl: String): Result<String>? {
+        return try {
+            trackApiCall()
+            val response = api.getPodcastByFeedUrl(feedUrl)
+            if (response.status != "true" || response.feed == null) return null
+
+            val podcast = response.feed.toDomain()
+            val isBookmarked = podcastDao.isPodcastBookmarked(podcast.id).first()
+            if (isBookmarked) {
+                Result.success("\"${podcast.title}\" is already bookmarked")
+            } else {
+                bookmarkPodcast(podcast)
+                Result.success("\"${podcast.title}\" added to bookmarks")
+            }
+        } catch (_: Exception) {
+            null // API unavailable or feed not indexed — fall through to RSS parsing
+        }
+    }
+
+    private suspend fun importViaRssParsing(feedUrl: String): Result<String> {
+        return try {
+            val connection = URL(feedUrl).openConnection().apply {
+                connectTimeout = 15_000
+                readTimeout = 15_000
+                setRequestProperty("User-Agent", "PodCapture/1.0")
+                setRequestProperty("Accept", "application/rss+xml, application/xml, text/xml, */*")
+            }
+
+            val feed = connection.getInputStream().use { rssFeedParser.parse(it) }
+
+            if (feed.title.isEmpty()) {
+                return Result.failure(Exception("Could not read RSS feed — is the URL correct?"))
+            }
+
+            // Derive a stable negative ID from the feed URL (positive IDs belong to Podcast Index)
+            val podcastId = feedUrl.fold(0L) { acc, c -> acc * 31L + c.code }
+                .let { h -> if (h >= 0) -(h + 1) else h }
+
+            val isBookmarked = podcastDao.isPodcastBookmarked(podcastId).first()
+            if (isBookmarked) {
+                return Result.success("\"${feed.title}\" is already bookmarked")
+            }
+
+            val bookmarked = BookmarkedPodcast(
+                id = podcastId,
+                title = feed.title,
+                author = feed.author.ifEmpty { "Unknown" },
+                description = feed.description,
+                artworkUrl = feed.imageUrl,
+                feedUrl = feedUrl,
+                language = feed.language.ifEmpty { "en" },
+                episodeCount = feed.episodes.size,
+                lastUpdateTime = System.currentTimeMillis() / 1000
+            )
+
+            val cachedEpisodes = feed.episodes.map { ep ->
+                val epId = "$podcastId:${ep.guid}".fold(0L) { acc, c -> acc * 31L + c.code }
+                    .let { h -> if (h >= 0) -(h + 1) else h }
+                CachedEpisode(
+                    id = epId,
+                    podcastId = podcastId,
+                    title = ep.title,
+                    description = ep.description,
+                    link = ep.link,
+                    publishedDate = ep.publishedDate,
+                    duration = ep.duration,
+                    audioUrl = ep.audioUrl,
+                    audioType = ep.audioType,
+                    audioSize = ep.audioSize,
+                    imageUrl = ep.imageUrl
+                )
+            }
+
+            podcastDao.bookmarkPodcastWithEpisodes(bookmarked, cachedEpisodes)
+
+            Result.success("\"${feed.title}\" added to bookmarks")
+        } catch (e: Exception) {
+            Result.failure(Exception("Failed to load RSS feed: ${e.message}"))
+        }
     }
 
     // ============ OPML Import/Export ============

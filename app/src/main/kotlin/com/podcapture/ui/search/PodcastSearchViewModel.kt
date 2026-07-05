@@ -20,7 +20,10 @@ data class PodcastSearchUiState(
     val error: String? = null,
     val hasSearched: Boolean = false,
     val latestEpisodes: List<LatestEpisode> = emptyList(),
-    val isLoadingLatestEpisodes: Boolean = false
+    val isLoadingLatestEpisodes: Boolean = false,
+    val showRssDialog: Boolean = false,
+    val rssUrl: String = "",
+    val isImportingRss: Boolean = false
 )
 
 class PodcastSearchViewModel(
@@ -104,5 +107,46 @@ class PodcastSearchViewModel(
 
     fun onErrorDismissed() {
         _uiState.value = _uiState.value.copy(error = null)
+    }
+
+    fun onShowRssDialog() {
+        _uiState.value = _uiState.value.copy(showRssDialog = true, rssUrl = "", isImportingRss = false)
+    }
+
+    fun onDismissRssDialog() {
+        if (!_uiState.value.isImportingRss) {
+            _uiState.value = _uiState.value.copy(showRssDialog = false, rssUrl = "")
+        }
+    }
+
+    fun onRssUrlChanged(url: String) {
+        _uiState.value = _uiState.value.copy(rssUrl = url)
+    }
+
+    fun onImportRssUrl() {
+        val url = _uiState.value.rssUrl.trim()
+        if (url.isBlank()) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isImportingRss = true)
+
+            podcastRepository.importFromRssUrl(url).fold(
+                onSuccess = { message ->
+                    _uiState.value = _uiState.value.copy(
+                        isImportingRss = false,
+                        showRssDialog = false,
+                        rssUrl = "",
+                        error = message
+                    )
+                    loadLatestEpisodes()
+                },
+                onFailure = { error ->
+                    _uiState.value = _uiState.value.copy(
+                        isImportingRss = false,
+                        error = error.message ?: "Failed to import RSS feed"
+                    )
+                }
+            )
+        }
     }
 }
