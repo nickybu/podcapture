@@ -428,7 +428,7 @@ private fun SpeedControl(
         IconButton(
             onClick = {
                 val newSpeed = (currentSpeed - 0.05f).coerceAtLeast(0.5f)
-                onSpeedChange((newSpeed * 20).toInt() / 20f) // Round to 0.05
+                onSpeedChange(kotlin.math.round(newSpeed * 20) / 20f)
             },
             enabled = currentSpeed > 0.5f
         ) {
@@ -449,7 +449,7 @@ private fun SpeedControl(
         IconButton(
             onClick = {
                 val newSpeed = (currentSpeed + 0.05f).coerceAtMost(2.0f)
-                onSpeedChange((newSpeed * 20).toInt() / 20f) // Round to 0.05
+                onSpeedChange(kotlin.math.round(newSpeed * 20) / 20f)
             },
             enabled = currentSpeed < 2.0f
         ) {

@@ -399,7 +399,7 @@ fun EpisodePlayerScreen(
                             onClick = {
                                 val newSpeed = (uiState.playbackState.playbackSpeed - 0.05f)
                                     .coerceAtLeast(0.5f)
-                                viewModel.onSpeedChange((newSpeed * 20).toInt() / 20f)
+                                viewModel.onSpeedChange(kotlin.math.round(newSpeed * 20) / 20f)
                             },
                             enabled = uiState.playbackState.playbackSpeed > 0.5f
                         ) {
@@ -421,7 +421,7 @@ fun EpisodePlayerScreen(
                             onClick = {
                                 val newSpeed = (uiState.playbackState.playbackSpeed + 0.05f)
                                     .coerceAtMost(2.0f)
-                                viewModel.onSpeedChange((newSpeed * 20).toInt() / 20f)
+                                viewModel.onSpeedChange(kotlin.math.round(newSpeed * 20) / 20f)
                             },
                             enabled = uiState.playbackState.playbackSpeed < 2.0f
                         ) {

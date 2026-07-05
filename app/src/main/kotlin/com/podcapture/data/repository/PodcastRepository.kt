@@ -20,10 +20,13 @@ import com.podcapture.data.rss.RssFeedParser
 import com.podcapture.data.settings.SettingsDataStore
 import java.io.InputStream
 import java.io.OutputStream
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -42,6 +45,11 @@ class PodcastRepository(
     companion object {
         private const val MAX_EPISODES = 1000
     }
+
+    // Background scope for fire-and-forget writes (e.g. periodic playhead saves) that must
+    // survive the caller's coroutine scope being cancelled — e.g. when a ViewModel is
+    // cleared during navigation.
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private suspend fun trackApiCall() {
         settingsDataStore.incrementApiCallCount()
@@ -174,9 +182,16 @@ class PodcastRepository(
     /**
      * Refreshes episodes for a podcast from the API.
      * Only fetches episodes newer than what we have cached.
+     *
+     * Custom-RSS podcasts (negative IDs assigned in [importViaRssParsing]) don't exist in
+     * the Podcast Index, so they refresh by re-parsing their feed URL directly.
      */
     suspend fun refreshEpisodes(podcastId: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            if (podcastId < 0) {
+                return@withContext refreshCustomRssEpisodes(podcastId)
+            }
+
             // Get newest episode timestamp to only fetch new episodes
             val newestTimestamp = podcastDao.getNewestEpisodeTimestamp(podcastId)
 
@@ -199,6 +214,66 @@ class PodcastRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private suspend fun refreshCustomRssEpisodes(podcastId: Long): Result<Unit> {
+        val podcast = podcastDao.getBookmarkedPodcastById(podcastId)
+            ?: return Result.failure(Exception("Bookmarked podcast not found"))
+        if (podcast.feedUrl.isBlank()) {
+            return Result.failure(Exception("Podcast has no feed URL to refresh"))
+        }
+        return try {
+            val connection = URL(podcast.feedUrl).openConnection().apply {
+                connectTimeout = 15_000
+                readTimeout = 15_000
+                setRequestProperty("User-Agent", "PodCapture/1.0")
+                setRequestProperty("Accept", "application/rss+xml, application/xml, text/xml, */*")
+            }
+            val feed = connection.getInputStream().use { rssFeedParser.parse(it) }
+            val episodes = feed.episodes.map { ep ->
+                val epId = "$podcastId:${ep.guid}".fold(0L) { acc, c -> acc * 31L + c.code }
+                    .let { h -> if (h >= 0) -(h + 1) else h }
+                CachedEpisode(
+                    id = epId,
+                    podcastId = podcastId,
+                    title = ep.title,
+                    description = ep.description,
+                    link = ep.link,
+                    publishedDate = ep.publishedDate,
+                    duration = ep.duration,
+                    audioUrl = ep.audioUrl,
+                    audioType = ep.audioType,
+                    audioSize = ep.audioSize,
+                    imageUrl = ep.imageUrl
+                )
+            }
+            if (episodes.isNotEmpty()) {
+                podcastDao.insertEpisodes(episodes)
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Returns the podcast metadata for a bookmarked podcast, without hitting the network.
+     * Used to open the detail page for custom-RSS podcasts (negative IDs) which aren't in
+     * the Podcast Index.
+     */
+    suspend fun getBookmarkedPodcastAsPodcast(podcastId: Long): Podcast? = withContext(Dispatchers.IO) {
+        val bp = podcastDao.getBookmarkedPodcastById(podcastId) ?: return@withContext null
+        Podcast(
+            id = bp.id,
+            title = bp.title,
+            author = bp.author,
+            description = bp.description,
+            artworkUrl = bp.artworkUrl,
+            feedUrl = bp.feedUrl,
+            language = bp.language,
+            episodeCount = bp.episodeCount,
+            lastUpdateTime = bp.lastUpdateTime
+        )
     }
 
     suspend fun getEpisodeById(episodeId: Long): CachedEpisode? {
@@ -261,12 +336,58 @@ class PodcastRepository(
         podcastDao.insertPlaybackHistory(history)
     }
 
+    /**
+     * Ensure a playback history row exists for [episode] so subsequent UPDATE-based
+     * position writes actually persist. Uses whatever podcast metadata is available
+     * (falling back to episode fields) so this works for edge cases like unbookmarked
+     * podcasts or missing bookmarked-podcast lookups.
+     */
+    suspend fun ensurePlaybackHistoryExists(
+        episode: CachedEpisode,
+        podcast: BookmarkedPodcast?,
+        localFilePath: String? = null
+    ) = withContext(Dispatchers.IO) {
+        val existing = podcastDao.getPlaybackHistoryForEpisode(episode.id)
+        if (existing != null) return@withContext
+        val history = EpisodePlaybackHistory(
+            episodeId = episode.id,
+            podcastId = podcast?.id ?: episode.podcastId,
+            podcastTitle = podcast?.title ?: episode.title,
+            podcastArtworkUrl = podcast?.artworkUrl ?: episode.imageUrl,
+            episodeTitle = episode.title,
+            duration = episode.duration,
+            positionMs = 0,
+            firstPlayedAt = System.currentTimeMillis(),
+            lastPlayedAt = System.currentTimeMillis(),
+            localFilePath = localFilePath,
+            isFinished = false
+        )
+        podcastDao.insertPlaybackHistory(history)
+    }
+
     suspend fun updatePlaybackPosition(episodeId: Long, positionMs: Long) = withContext(Dispatchers.IO) {
         podcastDao.updatePlaybackPosition(episodeId, positionMs)
     }
 
+    /**
+     * Persists the playback position without blocking the caller.
+     * Runs on the repository's own scope so the write completes even if the caller
+     * (e.g. a ViewModel) is being destroyed during navigation.
+     */
+    fun updatePlaybackPositionAsync(episodeId: Long, positionMs: Long) {
+        backgroundScope.launch {
+            podcastDao.updatePlaybackPosition(episodeId, positionMs)
+        }
+    }
+
     suspend fun markEpisodeFinished(episodeId: Long) = withContext(Dispatchers.IO) {
         podcastDao.markEpisodeFinished(episodeId)
+    }
+
+    fun markEpisodeFinishedAsync(episodeId: Long) {
+        backgroundScope.launch {
+            podcastDao.markEpisodeFinished(episodeId)
+        }
     }
 
     fun getPlaybackHistoryForPodcast(podcastId: Long): Flow<List<EpisodePlaybackHistory>> {

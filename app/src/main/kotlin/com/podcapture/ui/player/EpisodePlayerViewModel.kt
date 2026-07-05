@@ -64,7 +64,17 @@ class EpisodePlayerViewModel(
 
     companion object {
         private const val FINISH_THRESHOLD_MS = 30_000L
+        // Persist playhead this often during playback so we lose at most a few seconds if
+        // the process dies or ViewModel is cleared before onDispose can finish.
+        private const val POSITION_SAVE_INTERVAL_MS = 3_000L
     }
+
+    private val virtualAudioFileId = "episode_$episodeId"
+    private var lastSavedPositionMs = 0L
+    // Latest position we observed while this episode's audio was current. Used as a
+    // fallback in savePlaybackPosition when audio has already switched to another
+    // episode (e.g. onDispose racing with the next screen's loadAudio).
+    private var lastKnownPositionMs = 0L
 
     init {
         loadEpisode()
@@ -80,9 +90,10 @@ class EpisodePlayerViewModel(
 
             try {
                 val episode = podcastDao.getEpisodeById(episodeId)
-                // Try to get podcast from the episode's podcastId, or use the provided podcastId
+                // Try to get podcast from the episode's podcastId, or use the provided podcastId.
+                // Custom-RSS podcasts get synthetic *negative* IDs — only 0 means "unknown".
                 val actualPodcastId = episode?.podcastId ?: podcastId
-                val podcast = if (actualPodcastId > 0) {
+                val podcast = if (actualPodcastId != 0L) {
                     podcastDao.getBookmarkedPodcastById(actualPodcastId)
                 } else null
 
@@ -117,25 +128,32 @@ class EpisodePlayerViewModel(
                     return@launch
                 }
 
-                val virtualAudioFileId = "episode_$episodeId"
+                // Get saved position and finished state from history — always read this
+                // even if audio is already loaded, so we can seed lastSavedPositionMs
+                // and resume from where we left off.
+                val history = podcastRepository.getPlaybackHistoryForEpisode(episodeId)
+                val wasFinished = history?.isFinished ?: false
+                // Resume from saved position; restart from beginning if previously finished
+                val resumePosition = if (wasFinished) 0L else (history?.positionMs ?: 0L)
+                lastSavedPositionMs = resumePosition
+                lastKnownPositionMs = resumePosition
+
+                _uiState.value = _uiState.value.copy(isFinished = wasFinished)
+
+                // Ensure the playback history row exists BEFORE any UPDATE-based save can
+                // fire. If we skipped this (e.g. because audio was already loaded, or
+                // because the podcast lookup returned null), UPDATE would silently no-op
+                // and the playhead would never persist.
+                if (podcast != null) {
+                    podcastRepository.recordEpisodePlayback(episode, podcast, localPath)
+                } else {
+                    podcastRepository.ensurePlaybackHistoryExists(episode, null, localPath)
+                }
 
                 // Check if this episode is already loaded - don't reload
                 if (audioPlayerService.currentAudioFileId.value == virtualAudioFileId) {
                     // Audio is already loaded for this episode, just update UI state
                     return@launch
-                }
-
-                // Get saved position and finished state from history
-                val history = podcastRepository.getPlaybackHistoryForEpisode(episodeId)
-                val wasFinished = history?.isFinished ?: false
-                // Resume from saved position; restart from beginning if previously finished
-                val resumePosition = if (wasFinished) 0L else (history?.positionMs ?: 0L)
-
-                _uiState.value = _uiState.value.copy(isFinished = wasFinished)
-
-                // Record playback history
-                if (podcast != null) {
-                    podcastRepository.recordEpisodePlayback(episode, podcast, localPath)
                 }
 
                 // Get podcast title: prefer bookmarked podcast, fallback to history, then episode title
@@ -149,13 +167,9 @@ class EpisodePlayerViewModel(
                     audioFileId = virtualAudioFileId,
                     mimeType = episode.audioType,
                     title = episode.title,
-                    artist = podcastTitle  // Podcast series name for notification
+                    artist = podcastTitle,  // Podcast series name for notification
+                    startPositionMs = resumePosition
                 )
-
-                // Resume from saved position
-                if (resumePosition > 0) {
-                    audioPlayerService.seekTo(resumePosition)
-                }
 
                 // Auto-play
                 audioPlayerService.play()
@@ -174,14 +188,36 @@ class EpisodePlayerViewModel(
             audioPlayerService.playbackState.collect { state ->
                 _uiState.value = _uiState.value.copy(playbackState = state)
 
-                // Detect completion: position within threshold of end while this episode is loaded
+                // Only act on state that belongs to THIS episode, otherwise we'd save
+                // another episode's position under our episodeId when switching.
+                val isThisEpisodeLoaded =
+                    audioPlayerService.currentAudioFileId.value == virtualAudioFileId
+                if (!isThisEpisodeLoaded) return@collect
+
+                // Cache latest position while our episode is current so savePlaybackPosition
+                // can fall back to it even after audio has switched away.
+                if (state.currentPositionMs > 0) {
+                    lastKnownPositionMs = state.currentPositionMs
+                }
+
+                // Periodic playhead save while playing — forward-only so a transient
+                // pos=0 emission (e.g. during buffering before a resume seek takes
+                // effect) can't clobber the saved position with 0.
+                if (state.playerState == PlayerState.PLAYING &&
+                    state.currentPositionMs > 0 &&
+                    state.currentPositionMs - lastSavedPositionMs >= POSITION_SAVE_INTERVAL_MS
+                ) {
+                    lastSavedPositionMs = state.currentPositionMs
+                    podcastRepository.updatePlaybackPositionAsync(episodeId, state.currentPositionMs)
+                }
+
+                // Detect completion: position within threshold of end
                 if (!_uiState.value.isFinished &&
                     state.durationMs > 0 &&
-                    state.currentPositionMs >= state.durationMs - FINISH_THRESHOLD_MS &&
-                    audioPlayerService.currentAudioFileId.value == "episode_$episodeId"
+                    state.currentPositionMs >= state.durationMs - FINISH_THRESHOLD_MS
                 ) {
                     _uiState.value = _uiState.value.copy(isFinished = true)
-                    podcastRepository.markEpisodeFinished(episodeId)
+                    podcastRepository.markEpisodeFinishedAsync(episodeId)
                 }
             }
         }
@@ -299,17 +335,34 @@ class EpisodePlayerViewModel(
     }
 
     fun savePlaybackPosition() {
-        viewModelScope.launch {
-            val position = audioPlayerService.getCurrentPosition()
-            if (position > 0) {
-                podcastRepository.updatePlaybackPosition(episodeId, position)
+        // Fire-and-forget on the repository's own scope so this write completes even if
+        // viewModelScope is being cancelled during navigation.
+        //
+        // Prefer live position when our episode's audio is still current. Otherwise the
+        // next screen's loadAudio has already switched currentAudioFileId — in that case
+        // fall back to the last position we saw while we WERE current.
+        val isCurrent = audioPlayerService.currentAudioFileId.value == virtualAudioFileId
+        val livePosition = if (isCurrent) audioPlayerService.getCurrentPosition() else 0L
+        val position = if (livePosition > 0) livePosition else lastKnownPositionMs
+        if (position > 0) {
+            podcastRepository.updatePlaybackPositionAsync(episodeId, position)
+            lastSavedPositionMs = position
+            // Only run the completion check when audio is still ours — otherwise the
+            // duration we'd read belongs to a different episode.
+            if (isCurrent && livePosition > 0) {
                 val duration = audioPlayerService.getDuration()
                 if (!_uiState.value.isFinished && duration > 0 && position >= duration - FINISH_THRESHOLD_MS) {
-                    podcastRepository.markEpisodeFinished(episodeId)
+                    podcastRepository.markEpisodeFinishedAsync(episodeId)
                     _uiState.value = _uiState.value.copy(isFinished = true)
                 }
             }
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // Final save on ViewModel destruction — same fire-and-forget path so it survives.
+        savePlaybackPosition()
     }
 
     fun onErrorDismissed() {

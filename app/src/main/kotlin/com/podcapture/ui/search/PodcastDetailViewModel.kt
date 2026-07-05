@@ -70,7 +70,21 @@ class PodcastDetailViewModel(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
-            // Load podcast details from API
+            // Check if bookmarked first — bookmarked podcasts (including custom-RSS imports
+            // with synthetic negative IDs) live only in the local DB, not the Podcast Index.
+            val isBookmarked = podcastRepository.isPodcastBookmarked(podcastId).first()
+
+            if (isBookmarked) {
+                val cached = podcastRepository.getBookmarkedPodcastAsPodcast(podcastId)
+                if (cached != null) {
+                    _uiState.value = _uiState.value.copy(podcast = cached)
+                }
+                observeCachedEpisodes()
+                refreshEpisodesInBackground()
+                return@launch
+            }
+
+            // Not bookmarked — load podcast details from Podcast Index API
             searchRepository.getPodcastById(podcastId).fold(
                 onSuccess = { podcast ->
                     _uiState.value = _uiState.value.copy(podcast = podcast)
@@ -84,17 +98,7 @@ class PodcastDetailViewModel(
                 }
             )
 
-            // Check if bookmarked and load cached episodes
-            val isBookmarked = podcastRepository.isPodcastBookmarked(podcastId).first()
-
-            if (isBookmarked) {
-                // Load from cache and refresh for new episodes in background
-                observeCachedEpisodes()
-                refreshEpisodesInBackground()
-            } else {
-                // Load from API directly
-                loadEpisodesFromApi()
-            }
+            loadEpisodesFromApi()
         }
     }
 

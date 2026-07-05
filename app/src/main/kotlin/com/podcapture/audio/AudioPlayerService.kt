@@ -146,11 +146,15 @@ class AudioPlayerService(
         audioFileId: String? = null,
         mimeType: String? = null,
         title: String? = null,
-        artist: String? = null
+        artist: String? = null,
+        startPositionMs: Long = 0L
     ) {
         currentUri = uri
         _currentAudioFileId.value = audioFileId
-        _playbackState.value = _playbackState.value.copy(playerState = PlayerState.LOADING)
+        _playbackState.value = _playbackState.value.copy(
+            playerState = PlayerState.LOADING,
+            currentPositionMs = startPositionMs
+        )
 
         mediaController?.let { controller ->
             val metadata = MediaMetadata.Builder()
@@ -166,7 +170,14 @@ class AudioPlayerService(
                 }
                 .build()
 
-            controller.setMediaItem(mediaItem)
+            // setMediaItem(item, startPositionMs) sets the initial playhead atomically
+            // with the media load — critical because a separate seekTo() before
+            // prepare completes would be clamped by an unknown duration.
+            if (startPositionMs > 0L) {
+                controller.setMediaItem(mediaItem, startPositionMs)
+            } else {
+                controller.setMediaItem(mediaItem)
+            }
             controller.prepare()
         }
     }
@@ -194,7 +205,15 @@ class AudioPlayerService(
 
     fun seekTo(positionMs: Long) {
         mediaController?.let { controller ->
-            val clampedPosition = positionMs.coerceIn(0L, controller.duration.coerceAtLeast(0L))
+            // Before the media is prepared, controller.duration is C.TIME_UNSET
+            // (Long.MIN_VALUE). Only clamp against duration when it's known — otherwise
+            // we'd force the seek to 0 and silently drop resume-from-history.
+            val duration = controller.duration
+            val clampedPosition = if (duration > 0L) {
+                positionMs.coerceIn(0L, duration)
+            } else {
+                positionMs.coerceAtLeast(0L)
+            }
             controller.seekTo(clampedPosition)
             _playbackState.value = _playbackState.value.copy(currentPositionMs = clampedPosition)
         }
