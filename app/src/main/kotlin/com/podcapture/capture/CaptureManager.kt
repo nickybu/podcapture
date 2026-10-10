@@ -2,9 +2,9 @@ package com.podcapture.capture
 
 import android.net.Uri
 import com.podcapture.audio.AudioPlayerService
-import com.podcapture.data.model.AudioFile
 import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.repository.CaptureRepository
+import com.podcapture.data.repository.PodcastRepository
 import com.podcapture.data.settings.SettingsDataStore
 import com.podcapture.transcription.TranscriptionService
 import kotlinx.coroutines.CoroutineScope
@@ -23,10 +23,13 @@ data class CaptureState(
     val lastCaptureError: String? = null
 )
 
+private const val EPISODE_ID_PREFIX = "episode_"
+
 class CaptureManager(
     private val audioPlayerService: AudioPlayerService,
     private val audioFileRepository: AudioFileRepository,
     private val captureRepository: CaptureRepository,
+    private val podcastRepository: PodcastRepository,
     private val settingsDataStore: SettingsDataStore,
     private val transcriptionService: TranscriptionService
 ) {
@@ -35,21 +38,66 @@ class CaptureManager(
     private val _captureState = MutableStateFlow(CaptureState())
     val captureState: StateFlow<CaptureState> = _captureState.asStateFlow()
 
-    fun capture() {
-        val audioFileId = audioPlayerService.currentAudioFileId.value ?: return
+    /**
+     * Captures the window around the current playhead of whatever is loaded in the player —
+     * either a local audio file or a downloaded podcast episode ("episode_{id}").
+     *
+     * Returns false without doing anything if nothing is loaded or a capture is already
+     * running (transcription isn't safe to run concurrently). [onComplete] is invoked on
+     * the main thread with whether the capture was saved.
+     */
+    fun capture(onComplete: ((Boolean) -> Unit)? = null): Boolean {
+        val audioFileId = audioPlayerService.currentAudioFileId.value ?: return false
+        if (_captureState.value.isCapturing) return false
+
+        // Snapshot the playhead now — transcription can take a while and playback keeps going.
+        val currentPosition = audioPlayerService.getCurrentPosition()
+        val duration = audioPlayerService.getDuration()
+
+        _captureState.value = _captureState.value.copy(
+            isCapturing = true,
+            captureProgress = "Preparing...",
+            lastCaptureError = null
+        )
 
         scope.launch {
-            val audioFile = audioFileRepository.getFileByIdOnce(audioFileId) ?: return@launch
-            val currentPosition = audioPlayerService.getCurrentPosition()
-            val duration = audioPlayerService.getDuration()
-
-            _captureState.value = _captureState.value.copy(
-                isCapturing = true,
-                captureProgress = "Preparing...",
-                lastCaptureError = null
-            )
-
             try {
+                val episodeId = audioFileId.removePrefix(EPISODE_ID_PREFIX)
+                    .takeIf { audioFileId.startsWith(EPISODE_ID_PREFIX) }
+                    ?.toLongOrNull()
+
+                val audioUri: Uri
+                val saveCapture: suspend (Long, Long, String) -> Unit
+                if (episodeId != null) {
+                    val localPath = podcastRepository.getLocalEpisodePath(episodeId)
+                        ?: throw IllegalStateException("Please download the episode first to use capture")
+                    val episodeTitle = podcastRepository.getEpisodeById(episodeId)?.title ?: ""
+                    audioUri = Uri.parse("file://$localPath")
+                    saveCapture = { windowStart, windowEnd, transcription ->
+                        captureRepository.createEpisodeCapture(
+                            episodeId = episodeId,
+                            episodeTitle = episodeTitle,
+                            timestampMs = currentPosition,
+                            windowStartMs = windowStart,
+                            windowEndMs = windowEnd,
+                            transcription = transcription
+                        )
+                    }
+                } else {
+                    val audioFile = audioFileRepository.getFileByIdOnce(audioFileId)
+                        ?: throw IllegalStateException("Audio file not found")
+                    audioUri = Uri.parse(audioFile.filePath)
+                    saveCapture = { windowStart, windowEnd, transcription ->
+                        captureRepository.createCapture(
+                            audioFile = audioFile,
+                            timestampMs = currentPosition,
+                            windowStartMs = windowStart,
+                            windowEndMs = windowEnd,
+                            transcription = transcription
+                        )
+                    }
+                }
+
                 val windowSeconds = settingsDataStore.captureWindowSeconds.first()
                 val windowMs = windowSeconds * 1000L
                 val windowStart = (currentPosition - windowMs).coerceAtLeast(0L)
@@ -72,25 +120,20 @@ class CaptureManager(
                 )
 
                 val transcription = transcriptionService.transcribe(
-                    audioUri = Uri.parse(audioFile.filePath),
+                    audioUri = audioUri,
                     startMs = windowStart,
                     endMs = windowEnd
                 )
 
                 // Create capture
-                captureRepository.createCapture(
-                    audioFile = audioFile,
-                    timestampMs = currentPosition,
-                    windowStartMs = windowStart,
-                    windowEndMs = windowEnd,
-                    transcription = transcription
-                )
+                saveCapture(windowStart, windowEnd, transcription)
 
                 _captureState.value = _captureState.value.copy(
                     isCapturing = false,
                     captureProgress = null,
                     lastCaptureSuccess = "Capture saved at ${formatDuration(currentPosition)}"
                 )
+                onComplete?.invoke(true)
 
             } catch (e: Exception) {
                 _captureState.value = _captureState.value.copy(
@@ -98,8 +141,10 @@ class CaptureManager(
                     captureProgress = null,
                     lastCaptureError = "Capture failed: ${e.message}"
                 )
+                onComplete?.invoke(false)
             }
         }
+        return true
     }
 
     fun clearMessages() {

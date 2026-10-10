@@ -57,7 +57,7 @@ val appModule = module {
     single<TranscriptionService> { get<WhisperTranscriptionService>() }
 
     // Capture Manager (for mini player capture)
-    single { CaptureManager(get(), get(), get(), get(), get()) }
+    single { CaptureManager(get(), get(), get(), get(), get(), get()) }
 
     // Download Manager
     single { DownloadManager(androidContext(), get()) }

@@ -17,6 +17,8 @@ data class SettingsUiState(
     val captureWindowSeconds: Int = 30,
     val captureWindowStep: Int = 5,
     val skipIntervalSeconds: Int = 10,
+    val headsetCaptureEnabled: Boolean = true,
+    val headsetCaptureToneEnabled: Boolean = true,
     val obsidianVaultUri: String = "",
     val obsidianVaultDisplayName: String = "",
     val obsidianDefaultTags: String = "inbox/, resources/references/podcasts",
@@ -70,6 +72,20 @@ class SettingsViewModel(
             settingsDataStore.skipIntervalSeconds.collect { seconds ->
                 _uiState.value = _uiState.value.copy(
                     skipIntervalSeconds = seconds
+                )
+            }
+        }
+        viewModelScope.launch {
+            settingsDataStore.headsetCaptureEnabled.collect { enabled ->
+                _uiState.value = _uiState.value.copy(
+                    headsetCaptureEnabled = enabled
+                )
+            }
+        }
+        viewModelScope.launch {
+            settingsDataStore.headsetCaptureToneEnabled.collect { enabled ->
+                _uiState.value = _uiState.value.copy(
+                    headsetCaptureToneEnabled = enabled
                 )
             }
         }
@@ -136,6 +152,18 @@ class SettingsViewModel(
     fun setSkipIntervalSeconds(seconds: Int) {
         viewModelScope.launch {
             settingsDataStore.setSkipIntervalSeconds(seconds)
+        }
+    }
+
+    fun setHeadsetCaptureEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsDataStore.setHeadsetCaptureEnabled(enabled)
+        }
+    }
+
+    fun setHeadsetCaptureToneEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            settingsDataStore.setHeadsetCaptureToneEnabled(enabled)
         }
     }
 
