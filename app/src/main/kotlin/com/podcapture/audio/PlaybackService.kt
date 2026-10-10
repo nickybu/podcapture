@@ -48,7 +48,7 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val captureHandler = HeadsetCaptureHandler(captureManager, settingsDataStore)
+        val captureHandler = HeadsetCaptureHandler(this, captureManager, settingsDataStore)
         headsetCaptureHandler = captureHandler
 
         // Create media session

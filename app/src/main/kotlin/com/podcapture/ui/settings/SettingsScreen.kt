@@ -325,9 +325,9 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     SettingsSwitchRow(
-                        title = "Confirmation Beep",
-                        description = "Play a short beep in your headphones when a headphone capture starts, " +
-                            "and a low tone if it fails",
+                        title = "Capture Sound",
+                        description = "Play a soft shutter sound in your headphones when a headphone capture starts, " +
+                            "and a gentle chime if it fails",
                         checked = uiState.headsetCaptureToneEnabled,
                         enabled = uiState.headsetCaptureEnabled,
                         onCheckedChange = { viewModel.setHeadsetCaptureToneEnabled(it) }
