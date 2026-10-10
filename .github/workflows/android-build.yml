@@ -30,8 +30,9 @@ jobs:
 
       # Podcast Index keys normally come from local.properties, which isn't in the repo.
       # The build falls back to empty keys, which is fine for compiling and unit tests.
+      # -PciBuild installs as "PodCapture Test" (com.podcapture.ci) alongside the regular app.
       - name: Build debug APK and run unit tests
-        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest --console=plain
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest -PciBuild --console=plain
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
