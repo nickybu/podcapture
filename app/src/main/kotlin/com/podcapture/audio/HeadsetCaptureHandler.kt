@@ -5,7 +5,6 @@ import android.content.Intent
 import android.media.AudioAttributes
 import android.media.SoundPool
 import android.os.SystemClock
-import android.util.Log
 import android.view.KeyEvent
 import androidx.core.content.IntentCompat
 import com.podcapture.R
@@ -35,7 +34,6 @@ class HeadsetCaptureHandler(
     settingsDataStore: SettingsDataStore
 ) {
     companion object {
-        private const val TAG = "HeadsetCapture"
         // Guards against a headset re-sending the command (or a stray triple-press)
         // starting a second capture for the same moment.
         private const val DEBOUNCE_MS = 1_000L
@@ -88,7 +86,6 @@ class HeadsetCaptureHandler(
         val started = captureManager.capture { success ->
             if (!success) playSound(failedSoundId)
         }
-        Log.d(TAG, "Headset capture gesture received, started=$started")
         // Immediate feedback so the gesture is confirmed even with the screen off. The shutter
         // marks the moment being captured; the "saved" message follows once transcription
         // (which can take several seconds) finishes.

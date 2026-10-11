@@ -62,8 +62,9 @@ class CaptureManager(
 
         scope.launch {
             try {
-                val episodeId = audioFileId.removePrefix(EPISODE_ID_PREFIX)
-                    .takeIf { audioFileId.startsWith(EPISODE_ID_PREFIX) }
+                val episodeId = audioFileId
+                    .takeIf { it.startsWith(EPISODE_ID_PREFIX) }
+                    ?.removePrefix(EPISODE_ID_PREFIX)
                     ?.toLongOrNull()
 
                 val audioUri: Uri
