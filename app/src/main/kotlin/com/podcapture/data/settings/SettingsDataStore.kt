@@ -3,6 +3,7 @@ package com.podcapture.data.settings
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -27,6 +28,8 @@ class SettingsDataStore(private val context: Context) {
         private val THEME_BACKGROUND_COLOR = stringPreferencesKey("theme_background_color")
         private val THEME_ACCENT1_COLOR = stringPreferencesKey("theme_accent1_color")
         private val THEME_ACCENT2_COLOR = stringPreferencesKey("theme_accent2_color")
+        private val HEADSET_CAPTURE_ENABLED = booleanPreferencesKey("headset_capture_enabled")
+        private val HEADSET_CAPTURE_TONE_ENABLED = booleanPreferencesKey("headset_capture_tone_enabled")
         const val DEFAULT_CAPTURE_WINDOW = 30
         const val DEFAULT_CAPTURE_WINDOW_STEP = 5
         const val DEFAULT_SKIP_INTERVAL = 10
@@ -93,6 +96,16 @@ class SettingsDataStore(private val context: Context) {
             preferences[THEME_ACCENT2_COLOR] ?: DEFAULT_THEME_ACCENT2
         }
 
+    val headsetCaptureEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[HEADSET_CAPTURE_ENABLED] ?: true
+        }
+
+    val headsetCaptureToneEnabled: Flow<Boolean> = context.dataStore.data
+        .map { preferences ->
+            preferences[HEADSET_CAPTURE_TONE_ENABLED] ?: true
+        }
+
     suspend fun incrementApiCallCount() {
         context.dataStore.edit { preferences ->
             val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
@@ -132,6 +145,18 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setSkipIntervalSeconds(seconds: Int) {
         context.dataStore.edit { preferences ->
             preferences[SKIP_INTERVAL_SECONDS] = seconds
+        }
+    }
+
+    suspend fun setHeadsetCaptureEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[HEADSET_CAPTURE_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setHeadsetCaptureToneEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[HEADSET_CAPTURE_TONE_ENABLED] = enabled
         }
     }
 

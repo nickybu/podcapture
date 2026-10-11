@@ -36,7 +36,20 @@ android {
         buildConfigField("String", "PODCAST_INDEX_API_SECRET", "\"${localProperties.getProperty("PODCAST_INDEX_API_SECRET", "")}\"")
     }
 
+    // CI test builds (-PciBuild) install alongside the regular app under a separate package,
+    // so testing a PR never requires uninstalling (and losing data from) the main install.
+    val isCiBuild = project.hasProperty("ciBuild")
+
+    if (isCiBuild) {
+        sourceSets.getByName("debug").res.srcDir("src/ci/res")
+    }
+
     buildTypes {
+        debug {
+            if (isCiBuild) {
+                applicationIdSuffix = ".ci"
+            }
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(

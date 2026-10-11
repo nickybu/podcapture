@@ -42,6 +42,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -299,6 +300,37 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.fillMaxWidth(),
                         textAlign = TextAlign.Center
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    SettingsSwitchRow(
+                        title = "Headphone Capture",
+                        description = "Double-tap earbuds or double-press the headphone play button to capture. " +
+                            "Uses the headset's \"next track\" gesture.",
+                        checked = uiState.headsetCaptureEnabled,
+                        onCheckedChange = { viewModel.setHeadsetCaptureEnabled(it) }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    SettingsSwitchRow(
+                        title = "Capture Sound",
+                        description = "Play a soft shutter sound in your headphones when a headphone capture starts, " +
+                            "and a gentle chime if it fails",
+                        checked = uiState.headsetCaptureToneEnabled,
+                        enabled = uiState.headsetCaptureEnabled,
+                        onCheckedChange = { viewModel.setHeadsetCaptureToneEnabled(it) }
                     )
                 }
             }
@@ -603,6 +635,38 @@ fun SettingsScreen(
             // Bottom spacing to ensure content is scrollable
             Spacer(modifier = Modifier.height(32.dp))
         }
+    }
+}
+
+@Composable
+private fun SettingsSwitchRow(
+    title: String,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    enabled: Boolean = true
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall
+            )
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Spacer(modifier = Modifier.width(16.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            enabled = enabled
+        )
     }
 }
 
