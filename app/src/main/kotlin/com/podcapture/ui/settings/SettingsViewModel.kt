@@ -23,6 +23,8 @@ data class SettingsUiState(
     val obsidianVaultDisplayName: String = "",
     val obsidianDefaultTags: String = "inbox/, resources/references/podcasts",
     val apiCallCount: Int = 0,
+    val podcastIndexApiKey: String = "",
+    val podcastIndexApiSecret: String = "",
     val themeBackgroundColor: String = "#13293D",
     val themeAccent1Color: String = "#2A628F",
     val themeAccent2Color: String = "#3E92CC",
@@ -115,6 +117,14 @@ class SettingsViewModel(
             }
         }
         viewModelScope.launch {
+            settingsDataStore.podcastIndexCredentials.collect { credentials ->
+                _uiState.value = _uiState.value.copy(
+                    podcastIndexApiKey = credentials.apiKey,
+                    podcastIndexApiSecret = credentials.apiSecret
+                )
+            }
+        }
+        viewModelScope.launch {
             settingsDataStore.themeBackgroundColor.collect { color ->
                 _uiState.value = _uiState.value.copy(
                     themeBackgroundColor = color
@@ -176,6 +186,12 @@ class SettingsViewModel(
     fun setObsidianDefaultTags(tags: String) {
         viewModelScope.launch {
             settingsDataStore.setObsidianDefaultTags(tags)
+        }
+    }
+
+    fun setPodcastIndexCredentials(apiKey: String, apiSecret: String) {
+        viewModelScope.launch {
+            settingsDataStore.setPodcastIndexCredentials(apiKey, apiSecret)
         }
     }
 

@@ -25,7 +25,7 @@ val networkModule = module {
     // OkHttp client for Podcast Index
     single {
         OkHttpClient.Builder()
-            .addInterceptor(PodcastIndexAuthInterceptor())
+            .addInterceptor(PodcastIndexAuthInterceptor(get()))
             .addInterceptor(
                 HttpLoggingInterceptor().apply {
                     level = HttpLoggingInterceptor.Level.BASIC
