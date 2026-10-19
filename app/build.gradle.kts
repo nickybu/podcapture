@@ -16,8 +16,8 @@ android {
         applicationId = "com.podcapture"
         minSdk = 28
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -44,6 +44,25 @@ android {
         sourceSets.getByName("debug").res.srcDir("src/ci/res")
     }
 
+    // Release signing credentials live outside the repo (default ~/.android/podcapture-release.properties,
+    // override with -PreleaseSigningProps=<path>) with keys storeFile, storePassword, keyAlias, keyPassword.
+    val releaseSigningFile = file(
+        (project.findProperty("releaseSigningProps") as String?)
+            ?: "${System.getProperty("user.home")}/.android/podcapture-release.properties"
+    )
+
+    signingConfigs {
+        if (releaseSigningFile.exists()) {
+            create("release") {
+                val props = Properties().apply { releaseSigningFile.inputStream().use { load(it) } }
+                storeFile = file(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             if (isCiBuild) {
@@ -51,6 +70,7 @@ android {
             }
         }
         release {
+            signingConfigs.findByName("release")?.let { signingConfig = it }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),

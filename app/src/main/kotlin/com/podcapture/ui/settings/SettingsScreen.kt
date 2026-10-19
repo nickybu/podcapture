@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -29,6 +30,8 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -50,11 +53,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.podcapture.ui.theme.isValidHexColor
@@ -428,6 +438,18 @@ fun SettingsScreen(
                         .fillMaxWidth()
                         .padding(16.dp)
                 ) {
+                    PodcastIndexCredentialsSection(
+                        savedApiKey = uiState.podcastIndexApiKey,
+                        savedApiSecret = uiState.podcastIndexApiSecret,
+                        onSave = { key, secret -> viewModel.setPodcastIndexCredentials(key, secret) },
+                        onGetApiKey = {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.podcastindex.org/signup"))
+                            context.startActivity(intent)
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
                     Text(
                         text = "API Usage",
                         style = MaterialTheme.typography.titleSmall
@@ -634,6 +656,89 @@ fun SettingsScreen(
 
             // Bottom spacing to ensure content is scrollable
             Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun PodcastIndexCredentialsSection(
+    savedApiKey: String,
+    savedApiSecret: String,
+    onSave: (apiKey: String, apiSecret: String) -> Unit,
+    onGetApiKey: () -> Unit
+) {
+    // Edit locally and only persist on Save, so a half-typed key is never used for requests
+    var apiKey by remember(savedApiKey) { mutableStateOf(savedApiKey) }
+    var apiSecret by remember(savedApiSecret) { mutableStateOf(savedApiSecret) }
+    var showSecret by rememberSaveable { mutableStateOf(false) }
+
+    val hasChanges = apiKey.trim() != savedApiKey || apiSecret.trim() != savedApiSecret
+    val isConfigured = savedApiKey.isNotBlank() && savedApiSecret.isNotBlank()
+
+    Text(
+        text = "API Credentials",
+        style = MaterialTheme.typography.titleSmall
+    )
+    Text(
+        text = if (isConfigured) {
+            "Your API key is set. Podcast search is enabled."
+        } else {
+            "Podcast search needs a free Podcast Index API key. Sign up, then paste your key and secret here."
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = if (isConfigured) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+    )
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    OutlinedTextField(
+        value = apiKey,
+        onValueChange = { apiKey = it },
+        label = { Text("API Key") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    OutlinedTextField(
+        value = apiSecret,
+        onValueChange = { apiSecret = it },
+        label = { Text("API Secret") },
+        singleLine = true,
+        visualTransformation = if (showSecret) VisualTransformation.None else PasswordVisualTransformation(),
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+        trailingIcon = {
+            IconButton(onClick = { showSecret = !showSecret }) {
+                Icon(
+                    if (showSecret) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                    contentDescription = if (showSecret) "Hide secret" else "Show secret"
+                )
+            }
+        },
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedButton(
+            onClick = onGetApiKey,
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("Get API Key")
+        }
+
+        Button(
+            onClick = { onSave(apiKey, apiSecret) },
+            enabled = hasChanges,
+            modifier = Modifier.weight(1f)
+        ) {
+            Text("Save")
         }
     }
 }

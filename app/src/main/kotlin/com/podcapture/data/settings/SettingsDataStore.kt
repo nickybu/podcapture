@@ -30,6 +30,8 @@ class SettingsDataStore(private val context: Context) {
         private val THEME_ACCENT2_COLOR = stringPreferencesKey("theme_accent2_color")
         private val HEADSET_CAPTURE_ENABLED = booleanPreferencesKey("headset_capture_enabled")
         private val HEADSET_CAPTURE_TONE_ENABLED = booleanPreferencesKey("headset_capture_tone_enabled")
+        private val PODCAST_INDEX_API_KEY = stringPreferencesKey("podcast_index_api_key")
+        private val PODCAST_INDEX_API_SECRET = stringPreferencesKey("podcast_index_api_secret")
         const val DEFAULT_CAPTURE_WINDOW = 30
         const val DEFAULT_CAPTURE_WINDOW_STEP = 5
         const val DEFAULT_SKIP_INTERVAL = 10
@@ -105,6 +107,21 @@ class SettingsDataStore(private val context: Context) {
         .map { preferences ->
             preferences[HEADSET_CAPTURE_TONE_ENABLED] ?: true
         }
+
+    val podcastIndexCredentials: Flow<PodcastIndexCredentials> = context.dataStore.data
+        .map { preferences ->
+            PodcastIndexCredentials(
+                apiKey = preferences[PODCAST_INDEX_API_KEY] ?: "",
+                apiSecret = preferences[PODCAST_INDEX_API_SECRET] ?: ""
+            )
+        }
+
+    suspend fun setPodcastIndexCredentials(apiKey: String, apiSecret: String) {
+        context.dataStore.edit { preferences ->
+            preferences[PODCAST_INDEX_API_KEY] = apiKey.trim()
+            preferences[PODCAST_INDEX_API_SECRET] = apiSecret.trim()
+        }
+    }
 
     suspend fun incrementApiCallCount() {
         context.dataStore.edit { preferences ->
@@ -223,4 +240,11 @@ class SettingsDataStore(private val context: Context) {
             preferences[THEME_ACCENT2_COLOR] = DEFAULT_THEME_ACCENT2
         }
     }
+}
+
+data class PodcastIndexCredentials(
+    val apiKey: String,
+    val apiSecret: String
+) {
+    val isComplete: Boolean get() = apiKey.isNotBlank() && apiSecret.isNotBlank()
 }
