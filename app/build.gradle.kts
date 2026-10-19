@@ -71,6 +71,11 @@ android {
         }
         release {
             signingConfigs.findByName("release")?.let { signingConfig = it }
+            // Ship only the ARM native libs; x86/x86_64 are for emulators and add ~73 MB.
+            // Debug and CI builds keep every ABI so they still run on emulators.
+            ndk {
+                abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            }
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
