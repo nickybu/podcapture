@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import com.podcapture.data.model.AudioFileTag
 import com.podcapture.data.model.CaptureTag
 import com.podcapture.data.model.Tag
@@ -20,7 +21,9 @@ interface TagDao {
     @Query("SELECT * FROM tags WHERE id = :tagId")
     suspend fun getTagById(tagId: String): Tag?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Upsert, not REPLACE: tags is the FK parent of audio_file_tags, capture_tags and
+    // podcast_tags (ON DELETE CASCADE); a REPLACE would strip the tag from everything.
+    @Upsert
     suspend fun insertTag(tag: Tag)
 
     @Update
