@@ -3,11 +3,10 @@ package com.podcapture.transcription
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
  * Whisper-based transcription service using Sherpa-ONNX.
@@ -38,87 +37,102 @@ class WhisperTranscriptionService(
         modelManager.release()
     }
 
+    override suspend fun transcribeResult(
+        audioUri: Uri,
+        startMs: Long,
+        endMs: Long
+    ): Result<String> = withContext(Dispatchers.Default) {
+        try {
+            Result.success(transcribeOrThrow(audioUri, startMs, endMs))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: TranscriptionException) {
+            Log.w(TAG, "Transcription produced no text: ${e.message}")
+            Result.failure(e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Transcription failed", e)
+            Result.failure(TranscriptionException.Failed(e))
+        }
+    }
+
+    @Deprecated(
+        "Failures come back as bracketed text that callers then save as a normal capture. " +
+            "Use transcribeResult. Kept for PlayerViewModel and EpisodePlayerViewModel until a " +
+            "follow-up routes their captures through CaptureManager.",
+        ReplaceWith("transcribeResult(audioUri, startMs, endMs)")
+    )
     override suspend fun transcribe(
         audioUri: Uri,
         startMs: Long,
         endMs: Long
-    ): String = withContext(Dispatchers.Default) {
-        try {
-            if (!isModelReady()) {
-                return@withContext "[Model not ready - download required]"
+    ): String = transcribeResult(audioUri, startMs, endMs).getOrElse { e ->
+        // Legacy bracketed strings, unchanged for the callers that still persist them.
+        when (e) {
+            is TranscriptionException.ModelNotReady -> "[Model not ready - download required]"
+            is TranscriptionException.NoAudio -> "[No audio data to transcribe]"
+            is TranscriptionException.Failed -> "[Transcription error: ${e.cause?.message}]"
+            else -> "[Transcription error: ${e.message}]"
+        }
+    }
+
+    private suspend fun transcribeOrThrow(audioUri: Uri, startMs: Long, endMs: Long): String {
+        if (!isModelReady()) throw TranscriptionException.ModelNotReady()
+
+        val recognizer = modelManager.getRecognizer()
+            ?: throw IllegalStateException("recognizer not initialized")
+
+        // Mono 16 kHz floats in [-1, 1], consumed by the recognizer without further conversion.
+        val segment = audioExtractor.extractSegment(audioUri, startMs, endMs)
+        val samples = segment.samples
+        val sampleCount = segment.sampleCount
+        if (sampleCount == 0) throw TranscriptionException.NoAudio()
+
+        Log.d(TAG, "Transcribing $sampleCount samples (${sampleCount / segment.sampleRate}s) at ${segment.sampleRate}Hz")
+
+        // Process audio in chunks to handle Whisper's ~30 second context window.
+        // Sherpa's acceptWaveform only takes a whole FloatArray (and copies it into native
+        // memory), so full-length chunks share one scratch array and only the final partial
+        // chunk gets its own exact-size copy.
+        val transcriptionParts = mutableListOf<String>()
+        var scratch: FloatArray? = null
+        var offset = 0
+        var chunkIndex = 0
+
+        while (offset < sampleCount) {
+            val chunkEnd = minOf(offset + CHUNK_DURATION_SAMPLES, sampleCount)
+            val chunkLength = chunkEnd - offset
+            val chunk = when {
+                offset == 0 && chunkLength == samples.size -> samples
+                chunkLength == CHUNK_DURATION_SAMPLES -> {
+                    val buffer = scratch ?: FloatArray(CHUNK_DURATION_SAMPLES).also { scratch = it }
+                    System.arraycopy(samples, offset, buffer, 0, chunkLength)
+                    buffer
+                }
+                else -> samples.copyOfRange(offset, chunkEnd)
             }
 
-            val recognizer = modelManager.getRecognizer()
-            if (recognizer == null) {
-                Log.e(TAG, "Recognizer is null despite model being ready")
-                return@withContext "[Transcription error: recognizer not initialized]"
-            }
+            Log.d(TAG, "Processing chunk ${chunkIndex + 1}: samples $offset-$chunkEnd (${chunkLength / 16000}s)")
 
-            // Extract audio segment (returns 16-bit PCM at 16kHz mono)
-            val segment = audioExtractor.extractSegment(audioUri, startMs, endMs)
-
-            // Convert 16-bit PCM bytes to float samples normalized to [-1, 1]
-            val floatSamples = pcmBytesToFloatArray(segment.pcmData)
-
-            if (floatSamples.isEmpty()) {
-                return@withContext "[No audio data to transcribe]"
-            }
-
-            val totalDurationSec = floatSamples.size / segment.sampleRate
-            Log.d(TAG, "Transcribing ${floatSamples.size} samples (${totalDurationSec}s) at ${segment.sampleRate}Hz")
-
-            // Process audio in chunks to handle Whisper's ~30 second context window
-            val transcriptionParts = mutableListOf<String>()
-            var offset = 0
-            var chunkIndex = 0
-
-            while (offset < floatSamples.size) {
-                val chunkEnd = minOf(offset + CHUNK_DURATION_SAMPLES, floatSamples.size)
-                val chunk = floatSamples.copyOfRange(offset, chunkEnd)
-
-                Log.d(TAG, "Processing chunk ${chunkIndex + 1}: samples $offset-$chunkEnd (${chunk.size / 16000}s)")
-
-                val stream = recognizer.createStream()
+            val stream = recognizer.createStream()
+            try {
                 stream.acceptWaveform(chunk, segment.sampleRate)
                 recognizer.decode(stream)
-                val result = recognizer.getResult(stream)
-                stream.release()
-
-                val chunkText = result.text.trim()
+                val chunkText = recognizer.getResult(stream).text.trim()
                 if (chunkText.isNotEmpty()) {
                     transcriptionParts.add(chunkText)
                     Log.d(TAG, "Chunk ${chunkIndex + 1} result: $chunkText")
                 }
-
-                offset = chunkEnd
-                chunkIndex++
+            } finally {
+                stream.release()
             }
 
-            val fullText = transcriptionParts.joinToString(" ").trim()
-            Log.d(TAG, "Full transcription (${transcriptionParts.size} chunks): $fullText")
-
-            fullText.ifEmpty { "[No speech detected]" }
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Transcription failed", e)
-            "[Transcription error: ${e.message}]"
+            offset = chunkEnd
+            chunkIndex++
         }
-    }
 
-    /**
-     * Converts 16-bit PCM byte array to float array normalized to [-1.0, 1.0].
-     */
-    private fun pcmBytesToFloatArray(pcmData: ByteArray): FloatArray {
-        val shortBuffer = ByteBuffer.wrap(pcmData)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .asShortBuffer()
+        val fullText = transcriptionParts.joinToString(" ").trim()
+        Log.d(TAG, "Full transcription (${transcriptionParts.size} chunks): $fullText")
 
-        val samples = ShortArray(shortBuffer.remaining())
-        shortBuffer.get(samples)
-
-        // Convert to float [-1.0, 1.0]
-        return FloatArray(samples.size) { i ->
-            samples[i].toFloat() / Short.MAX_VALUE
-        }
+        return fullText.ifEmpty { "[No speech detected]" }
     }
 }

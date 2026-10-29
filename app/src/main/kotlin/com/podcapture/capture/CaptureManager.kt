@@ -2,6 +2,7 @@ package com.podcapture.capture
 
 import android.net.Uri
 import com.podcapture.audio.AudioPlayerService
+import com.podcapture.audio.PlayerState
 import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.repository.CaptureRepository
 import com.podcapture.data.repository.PodcastRepository
@@ -25,6 +26,8 @@ data class CaptureState(
 
 private const val EPISODE_ID_PREFIX = "episode_"
 
+private val CAPTURABLE_PLAYER_STATES = setOf(PlayerState.READY, PlayerState.PLAYING, PlayerState.PAUSED)
+
 class CaptureManager(
     private val audioPlayerService: AudioPlayerService,
     private val audioFileRepository: AudioFileRepository,
@@ -43,8 +46,9 @@ class CaptureManager(
      * either a local audio file or a downloaded podcast episode ("episode_{id}").
      *
      * Returns false without doing anything if nothing is loaded or a capture is already
-     * running (transcription isn't safe to run concurrently). [onComplete] is invoked on
-     * the main thread with whether the capture was saved.
+     * running (transcription isn't safe to run concurrently). Also returns false, setting
+     * [CaptureState.lastCaptureError], if the player isn't prepared (no known duration yet).
+     * [onComplete] is invoked on the main thread with whether the capture was saved.
      */
     fun capture(onComplete: ((Boolean) -> Unit)? = null): Boolean {
         val audioFileId = audioPlayerService.currentAudioFileId.value ?: return false
@@ -53,6 +57,15 @@ class CaptureManager(
         // Snapshot the playhead now — transcription can take a while and playback keeps going.
         val currentPosition = audioPlayerService.getCurrentPosition()
         val duration = audioPlayerService.getDuration()
+
+        // An unprepared player reports duration 0, which would give an empty window.
+        val playerState = audioPlayerService.playbackState.value.playerState
+        if (playerState !in CAPTURABLE_PLAYER_STATES || duration <= 0L) {
+            _captureState.value = _captureState.value.copy(
+                lastCaptureError = "Capture failed: player is not ready yet"
+            )
+            return false
+        }
 
         _captureState.value = _captureState.value.copy(
             isCapturing = true,
@@ -120,11 +133,13 @@ class CaptureManager(
                     captureProgress = "Transcribing audio..."
                 )
 
-                val transcription = transcriptionService.transcribe(
+                // A failed transcription throws here, so nothing is saved and the reason
+                // surfaces through lastCaptureError.
+                val transcription = transcriptionService.transcribeResult(
                     audioUri = audioUri,
                     startMs = windowStart,
                     endMs = windowEnd
-                )
+                ).getOrThrow()
 
                 // Create capture
                 saveCapture(windowStart, windowEnd, transcription)
