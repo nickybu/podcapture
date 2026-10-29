@@ -32,6 +32,7 @@ data class SettingsUiState(
     val isImporting: Boolean = false,
     val importProgress: ImportProgress? = null,
     val importResult: PodcastRepository.ImportResult? = null,
+    val importError: String? = null,
     val exportResult: ExportResult? = null
 )
 
@@ -226,7 +227,8 @@ class SettingsViewModel(
             _uiState.value = _uiState.value.copy(
                 isImporting = true,
                 importProgress = null,
-                importResult = null
+                importResult = null,
+                importError = null
             )
 
             val result = withContext(Dispatchers.IO) {
@@ -246,7 +248,12 @@ class SettingsViewModel(
             _uiState.value = _uiState.value.copy(
                 isImporting = false,
                 importProgress = null,
-                importResult = result.getOrNull()
+                importResult = result.getOrNull(),
+                importError = if (result.isFailure) {
+                    result.exceptionOrNull()?.message ?: "Import failed"
+                } else {
+                    null
+                }
             )
         }
     }
@@ -273,7 +280,7 @@ class SettingsViewModel(
     }
 
     fun clearImportResult() {
-        _uiState.value = _uiState.value.copy(importResult = null)
+        _uiState.value = _uiState.value.copy(importResult = null, importError = null)
     }
 
     fun clearExportResult() {

@@ -36,7 +36,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +56,7 @@ import com.podcapture.util.TranscriptFormattingParser
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TranscriptEditDialog(
+    captureId: String,
     formattedText: String,
     originalTranscription: String,
     validationError: Boolean,
@@ -63,8 +64,18 @@ fun TranscriptEditDialog(
     onSave: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    var textFieldValue by remember(formattedText) {
+    // The local TextFieldValue is the single source of truth for text, caret and selection
+    // while the dialog is open. It is keyed on the capture being edited, NOT on formattedText:
+    // every edit is pushed to the ViewModel (for validation/save) and flows back as
+    // formattedText, so keying on it would reset the caret to 0 on each keystroke.
+    var textFieldValue by rememberSaveable(captureId, stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(formattedText))
+    }
+
+    fun applyEdit(newValue: TextFieldValue) {
+        val textChanged = newValue.text != textFieldValue.text
+        textFieldValue = newValue
+        if (textChanged) onTextChanged(newValue.text)
     }
 
     Dialog(
@@ -111,51 +122,13 @@ fun TranscriptEditDialog(
                 // Formatting toolbar
                 FormattingToolbar(
                     onHighlight = {
-                        val selection = textFieldValue.selection
-                        if (!selection.collapsed) {
-                            val newText = TranscriptFormattingParser.applyFormatting(
-                                textFieldValue.text,
-                                selection.min,
-                                selection.max,
-                                FormattingType.HIGHLIGHT
-                            )
-                            textFieldValue = textFieldValue.copy(
-                                text = newText,
-                                selection = TextRange(selection.min)
-                            )
-                            onTextChanged(newText)
-                        }
+                        applyEdit(applyToolbarFormatting(textFieldValue, ToolbarAction.HIGHLIGHT))
                     },
                     onBold = {
-                        val selection = textFieldValue.selection
-                        if (!selection.collapsed) {
-                            val newText = TranscriptFormattingParser.applyFormatting(
-                                textFieldValue.text,
-                                selection.min,
-                                selection.max,
-                                FormattingType.BOLD
-                            )
-                            textFieldValue = textFieldValue.copy(
-                                text = newText,
-                                selection = TextRange(selection.min)
-                            )
-                            onTextChanged(newText)
-                        }
+                        applyEdit(applyToolbarFormatting(textFieldValue, ToolbarAction.BOLD))
                     },
                     onClear = {
-                        val selection = textFieldValue.selection
-                        if (!selection.collapsed) {
-                            val newText = TranscriptFormattingParser.clearFormatting(
-                                textFieldValue.text,
-                                selection.min,
-                                selection.max
-                            )
-                            textFieldValue = textFieldValue.copy(
-                                text = newText,
-                                selection = TextRange(selection.min)
-                            )
-                            onTextChanged(newText)
-                        }
+                        applyEdit(applyToolbarFormatting(textFieldValue, ToolbarAction.CLEAR))
                     }
                 )
 
@@ -181,10 +154,7 @@ fun TranscriptEditDialog(
                 // Text editor
                 OutlinedTextField(
                     value = textFieldValue,
-                    onValueChange = { newValue ->
-                        textFieldValue = newValue
-                        onTextChanged(newValue.text)
-                    },
+                    onValueChange = { newValue -> applyEdit(newValue) },
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
@@ -228,6 +198,35 @@ fun TranscriptEditDialog(
             }
         }
     }
+}
+
+internal enum class ToolbarAction { HIGHLIGHT, BOLD, CLEAR }
+
+/**
+ * Applies a toolbar formatting action to the current selection.
+ *
+ * Returns [value] unchanged when the selection is collapsed. Otherwise the formatting is applied
+ * and the caret is placed right after the edited region (i.e. after the closing marker when one
+ * was inserted). All parser edits are confined to the selected range, so the end of the edited
+ * region is `selection.max + (newLength - oldLength)`.
+ */
+internal fun applyToolbarFormatting(value: TextFieldValue, action: ToolbarAction): TextFieldValue {
+    val selection = value.selection
+    if (selection.collapsed) return value
+
+    val newText = when (action) {
+        ToolbarAction.HIGHLIGHT -> TranscriptFormattingParser.applyFormatting(
+            value.text, selection.min, selection.max, FormattingType.HIGHLIGHT
+        )
+        ToolbarAction.BOLD -> TranscriptFormattingParser.applyFormatting(
+            value.text, selection.min, selection.max, FormattingType.BOLD
+        )
+        ToolbarAction.CLEAR -> TranscriptFormattingParser.clearFormatting(
+            value.text, selection.min, selection.max
+        )
+    }
+    val caret = (selection.max + newText.length - value.text.length).coerceIn(0, newText.length)
+    return value.copy(text = newText, selection = TextRange(caret), composition = null)
 }
 
 @Composable

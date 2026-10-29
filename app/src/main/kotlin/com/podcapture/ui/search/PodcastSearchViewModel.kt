@@ -7,6 +7,8 @@ import com.podcapture.data.model.Podcast
 import com.podcapture.data.repository.PodcastRepository
 import com.podcapture.data.repository.PodcastSearchRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,12 +67,19 @@ class PodcastSearchViewModel(
                 delay(500) // Debounce 500ms
                 performSearch(query)
             }
-        } else if (query.isEmpty()) {
-            _uiState.value = _uiState.value.copy(
-                podcasts = emptyList(),
-                hasSearched = false,
-                error = null
-            )
+        } else {
+            // Any in-flight search was just cancelled, so make sure its spinner is cleared.
+            searchJob = null
+            _uiState.value = if (query.isEmpty()) {
+                _uiState.value.copy(
+                    podcasts = emptyList(),
+                    hasSearched = false,
+                    error = null,
+                    isLoading = false
+                )
+            } else {
+                _uiState.value.copy(isLoading = false)
+            }
         }
     }
 
@@ -78,31 +87,46 @@ class PodcastSearchViewModel(
         val query = _uiState.value.query
         if (query.isNotBlank()) {
             searchJob?.cancel()
-            viewModelScope.launch {
+            // Tracked in searchJob so a newer (debounced or manual) search cancels this one
+            // instead of being overwritten by its late result.
+            searchJob = viewModelScope.launch {
                 performSearch(query)
             }
         }
     }
 
     private suspend fun performSearch(query: String) {
+        val thisJob = currentCoroutineContext()[Job]
         _uiState.value = _uiState.value.copy(isLoading = true, error = null)
 
-        repository.searchPodcasts(query).fold(
-            onSuccess = { podcasts ->
-                _uiState.value = _uiState.value.copy(
-                    podcasts = podcasts,
-                    isLoading = false,
-                    hasSearched = true
-                )
-            },
-            onFailure = { error ->
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = error.message ?: "Search failed",
-                    hasSearched = true
-                )
+        try {
+            val result = repository.searchPodcasts(query)
+            // Don't publish results from a search that was superseded while in flight.
+            currentCoroutineContext().ensureActive()
+            result.fold(
+                onSuccess = { podcasts ->
+                    _uiState.value = _uiState.value.copy(
+                        podcasts = podcasts,
+                        isLoading = false,
+                        hasSearched = true
+                    )
+                },
+                onFailure = { error ->
+                    _uiState.value = _uiState.value.copy(
+                        isLoading = false,
+                        error = error.message ?: "Search failed",
+                        hasSearched = true
+                    )
+                }
+            )
+        } finally {
+            // Covers cancellation: clear the spinner unless a newer search has already taken
+            // over (that search owns isLoading now and will clear it itself).
+            val latest = searchJob
+            if (latest == null || latest === thisJob) {
+                _uiState.value = _uiState.value.copy(isLoading = false)
             }
-        )
+        }
     }
 
     fun onErrorDismissed() {
