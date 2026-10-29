@@ -122,6 +122,20 @@ interface PodcastDao {
     @Query("DELETE FROM cached_episodes WHERE podcastId = :podcastId")
     suspend fun deleteEpisodesForPodcast(podcastId: Long)
 
+    @Query("SELECT id FROM cached_episodes WHERE podcastId = :podcastId")
+    suspend fun getEpisodeIdsForPodcast(podcastId: Long): List<Long>
+
+    /**
+     * Counts captures taken on this podcast's cached episodes. Episode captures use the
+     * virtual audioFileId "episode_{episodeId}" and have no FK, so they survive unbookmarking.
+     */
+    @Query("""
+        SELECT COUNT(*) FROM captures c
+        INNER JOIN cached_episodes ce ON c.audioFileId = 'episode_' || ce.id
+        WHERE ce.podcastId = :podcastId
+    """)
+    suspend fun getCaptureCountForPodcast(podcastId: Long): Int
+
     // ============ Episode Playback History ============
 
     @Query("SELECT * FROM episode_playback_history ORDER BY lastPlayedAt DESC")

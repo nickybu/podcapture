@@ -74,7 +74,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -84,6 +86,7 @@ import coil.compose.AsyncImage
 import com.podcapture.data.model.AudioFile
 import com.podcapture.data.model.BookmarkedPodcast
 import com.podcapture.data.model.Tag
+import com.podcapture.ui.components.UnbookmarkPodcastDialog
 import org.koin.androidx.compose.koinViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -103,6 +106,7 @@ fun HomeScreen(
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
+    var podcastPendingUnbookmark by remember { mutableStateOf<BookmarkedPodcast?>(null) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
@@ -298,7 +302,9 @@ fun HomeScreen(
                                             item = item,
                                             onPodcastClick = { viewModel.onPodcastClicked(it) },
                                             onAudioFileClick = { viewModel.onFileClicked(it) },
-                                            onUnbookmarkPodcast = { viewModel.onUnbookmarkPodcast(it) },
+                                            onUnbookmarkPodcast = {
+                                                podcastPendingUnbookmark = (item as? BookmarkItem.PodcastBookmark)?.podcast
+                                            },
                                             onToggleAudioFileBookmark = { viewModel.onToggleAudioFileBookmark(it) }
                                         )
                                     }
@@ -477,6 +483,19 @@ fun HomeScreen(
                     Text("Cancel")
                 }
             }
+        )
+    }
+
+    // Unbookmark podcast confirmation dialog
+    podcastPendingUnbookmark?.let { podcast ->
+        UnbookmarkPodcastDialog(
+            podcastId = podcast.id,
+            podcastTitle = podcast.title,
+            onConfirm = {
+                viewModel.onUnbookmarkPodcast(podcast.id)
+                podcastPendingUnbookmark = null
+            },
+            onDismiss = { podcastPendingUnbookmark = null }
         )
     }
 }
