@@ -2,12 +2,21 @@ package com.podcapture.data.repository
 
 import com.podcapture.data.db.AudioFileDao
 import com.podcapture.data.model.AudioFile
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 class AudioFileRepository(
     private val audioFileDao: AudioFileDao
 ) {
+    // Background scope for fire-and-forget writes (playhead saves, play history) that must
+    // survive the caller's scope being cancelled. viewModelScope is already cancelled by the
+    // time ViewModel.onCleared() runs (lifecycle 2.8+), so a launch there never executes.
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     val allFiles: Flow<List<AudioFile>> = audioFileDao.getAllFiles()
 
     suspend fun getAllFilesOnce(): List<AudioFile> = audioFileDao.getAllFilesOnce()
@@ -51,16 +60,30 @@ class AudioFileRepository(
         }
     }
 
-    suspend fun updatePlaybackState(id: String, position: Long) {
-        audioFileDao.updatePlaybackState(
-            id = id,
-            timestamp = System.currentTimeMillis(),
-            position = position
-        )
-    }
-
     suspend fun updatePosition(id: String, position: Long) {
         audioFileDao.updatePosition(id, position)
+    }
+
+    /**
+     * Persists the playback position without blocking the caller.
+     * Runs on the repository's own scope so the write completes even if the caller
+     * (e.g. a ViewModel) is being destroyed during navigation.
+     */
+    fun updatePositionAsync(id: String, positionMs: Long) {
+        backgroundScope.launch {
+            audioFileDao.updatePosition(id, positionMs)
+        }
+    }
+
+    /**
+     * Records that playback started (lastPlayedAt / playCount, which drive History).
+     * Fire-and-forget on the repository scope, like [updatePositionAsync].
+     */
+    fun recordPlaybackStartedAsync(id: String) {
+        val timestamp = System.currentTimeMillis()
+        backgroundScope.launch {
+            audioFileDao.recordPlay(id, timestamp)
+        }
     }
 
     suspend fun deleteFile(id: String) {
