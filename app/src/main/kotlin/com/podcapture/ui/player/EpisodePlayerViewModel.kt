@@ -50,6 +50,7 @@ data class EpisodePlayerUiState(
 class EpisodePlayerViewModel(
     private val episodeId: Long,
     private val podcastId: Long,
+    initialSeekToMs: Long?,
     private val audioPlayerService: AudioPlayerService,
     private val podcastRepository: PodcastRepository,
     private val podcastDao: PodcastDao,
@@ -75,6 +76,10 @@ class EpisodePlayerViewModel(
     // fallback in savePlaybackPosition when audio has already switched to another
     // episode (e.g. onDispose racing with the next screen's loadAudio).
     private var lastKnownPositionMs = 0L
+
+    // Timestamp requested by navigation (jump to capture). Consumed by the first load that
+    // reaches the player, which may be after a download completes.
+    private val pendingSeek = PendingSeek(initialSeekToMs)
 
     init {
         loadEpisode()
@@ -150,11 +155,26 @@ class EpisodePlayerViewModel(
                     podcastRepository.ensurePlaybackHistoryExists(episode, null, localPath)
                 }
 
+                val requestedSeekMs = pendingSeek.consume()
+
                 // Check if this episode is already loaded - don't reload
                 if (audioPlayerService.currentAudioFileId.value == virtualAudioFileId) {
-                    // Audio is already loaded for this episode, just update UI state
+                    // Audio is already loaded for this episode: keep its position unless
+                    // navigation asked for a timestamp. Seeking is safe now because the
+                    // loaded media is verified to be this episode.
+                    requestedSeekMs?.let { position ->
+                        audioPlayerService.seekTo(position)
+                        lastSavedPositionMs = position
+                        lastKnownPositionMs = position
+                    }
                     return@launch
                 }
+
+                // Start at the requested timestamp, else resume. Passed to loadAudio so the
+                // playhead is set atomically with the media item.
+                val startPositionMs = requestedSeekMs ?: resumePosition
+                lastSavedPositionMs = startPositionMs
+                lastKnownPositionMs = startPositionMs
 
                 // Get podcast title: prefer bookmarked podcast, fallback to history, then episode title
                 val podcastTitle = podcast?.title ?: history?.podcastTitle ?: episode.title
@@ -168,7 +188,7 @@ class EpisodePlayerViewModel(
                     mimeType = episode.audioType,
                     title = episode.title,
                     artist = podcastTitle,  // Podcast series name for notification
-                    startPositionMs = resumePosition
+                    startPositionMs = startPositionMs
                 )
 
                 // Auto-play

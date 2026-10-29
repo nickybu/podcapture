@@ -65,8 +65,23 @@ internal fun shouldSavePosition(
     }
 }
 
+/**
+ * A seek requested by navigation, e.g. jumping to a capture's timestamp.
+ *
+ * The nav argument that carries it never changes, so it must be applied exactly once: as
+ * the start position of the first load, not from composition (which re-runs after
+ * returning from another screen or rotating) and not before the media is loaded.
+ */
+internal class PendingSeek(initialPositionMs: Long?) {
+    private var positionMs: Long? = initialPositionMs?.coerceAtLeast(0L)
+
+    /** Returns the requested position on the first call, then null. */
+    fun consume(): Long? = positionMs.also { positionMs = null }
+}
+
 class PlayerViewModel(
     private val audioFileId: String,
+    initialSeekToMs: Long?,
     private val audioFileRepository: AudioFileRepository,
     private val captureRepository: CaptureRepository,
     private val audioPlayerService: AudioPlayerService,
@@ -88,6 +103,8 @@ class PlayerViewModel(
     private var lastKnownPositionMs = 0L
     private var lastObservedPlayerState: PlayerState? = null
     private var playbackStartRecorded = false
+
+    private val pendingSeek = PendingSeek(initialSeekToMs)
 
     init {
         loadAudioFile()
@@ -111,20 +128,28 @@ class PlayerViewModel(
                     if (isFirstLoad) {
                         lastSavedPositionMs = it.lastPositionMs
                         val uri = Uri.parse(it.filePath)
+                        val requestedSeekMs = pendingSeek.consume()
 
                         // Check if this audio is already loaded in the player
                         if (audioPlayerService.isLoadedUri(uri)) {
-                            // Audio already loaded - don't reload, just keep current position
-                            // The playback state will sync via observePlaybackState()
+                            // Audio already loaded - don't reload, keep the current position
+                            // unless navigation asked for a timestamp. Seeking is safe here
+                            // because the loaded media is verified to be this file.
+                            requestedSeekMs?.let { position -> audioPlayerService.seekTo(position) }
                         } else {
-                            // Load new audio into player with MIME type hint and title for notification
+                            // Start at the requested timestamp, else resume where we left off.
+                            // Passing it to loadAudio sets the playhead atomically with the
+                            // media item instead of a separate seek that the load can override.
+                            val startPositionMs = requestedSeekMs ?: it.lastPositionMs
+                            lastKnownPositionMs = startPositionMs
                             val mimeType = getMimeTypeForFormat(it.format)
-                            audioPlayerService.loadAudio(uri, audioFileId, mimeType, it.name)
-
-                            // Seek to last saved position if resuming
-                            if (it.lastPositionMs > 0) {
-                                audioPlayerService.seekTo(it.lastPositionMs)
-                            }
+                            audioPlayerService.loadAudio(
+                                uri = uri,
+                                audioFileId = audioFileId,
+                                mimeType = mimeType,
+                                title = it.name,
+                                startPositionMs = startPositionMs
+                            )
                         }
                     }
                 }

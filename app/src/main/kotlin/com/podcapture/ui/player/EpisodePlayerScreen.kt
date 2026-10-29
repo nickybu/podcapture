@@ -95,14 +95,11 @@ fun EpisodePlayerScreen(
     onNavigateBack: () -> Unit,
     onNavigateToViewer: (audioFileId: String, captureId: String?) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: EpisodePlayerViewModel = koinViewModel { parametersOf(episodeId, podcastId) }
+    // seekToMs is consumed once by the ViewModel as the load's start position. Applying it
+    // from composition re-seeked on every re-entry (back from Viewer, rotation) and could hit
+    // whatever media was loaded before this episode.
+    viewModel: EpisodePlayerViewModel = koinViewModel { parametersOf(episodeId, podcastId, seekToMs) }
 ) {
-    // Handle seek request when navigating from captures
-    LaunchedEffect(seekToMs) {
-        seekToMs?.let { position ->
-            viewModel.onSeekTo(position)
-        }
-    }
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val virtualAudioFileId = "episode_$episodeId"
