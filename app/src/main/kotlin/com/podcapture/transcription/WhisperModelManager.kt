@@ -111,7 +111,7 @@ class WhisperModelManager(private val context: Context) {
                     ),
                     tokens = getTokensPath(),
                     modelType = "whisper",
-                    numThreads = 2,
+                    numThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4),
                     debug = false,
                     provider = "cpu"
                 ),
