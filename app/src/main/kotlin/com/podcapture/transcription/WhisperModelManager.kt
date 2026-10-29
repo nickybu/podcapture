@@ -6,10 +6,14 @@ import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OfflineWhisperModelConfig
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -17,6 +21,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Manages the Whisper model download and initialization.
@@ -45,36 +50,77 @@ class WhisperModelManager(private val context: Context) {
     private val recognizerMutex = Mutex()
     private var recognizer: OfflineRecognizer? = null
 
-    private val _modelState = MutableStateFlow<ModelState>(
-        if (isModelReady()) ModelState.Ready else ModelState.NotDownloaded
-    )
+    // Owns the model download so it outlives (and is shared between) the callers awaiting it.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val downloadFlight = SingleFlight<Boolean>(scope)
+
+    // Cached result of the model-file check so isModelReady() is cheap on the main thread.
+    // null = not checked yet. Updated after every download attempt.
+    private val modelReadyCache = AtomicReference<Boolean?>(null)
+
+    private val _modelState = MutableStateFlow<ModelState>(ModelState.NotDownloaded)
     val modelState: StateFlow<ModelState> = _modelState.asStateFlow()
 
+    init {
+        // The constructor runs wherever Koin first resolves this singleton (often the main
+        // thread), so check the model files in the background instead of blocking it.
+        scope.launch {
+            if (isModelReady()) {
+                _modelState.compareAndSet(ModelState.NotDownloaded, ModelState.Ready)
+            }
+        }
+    }
+
+    /**
+     * Returns whether the model files are present. Hits the disk only on the first call; after
+     * that (and after each download attempt) the cached answer is returned.
+     */
     fun isModelReady(): Boolean {
+        modelReadyCache.get()?.let { return it }
+        val ready = modelFilesExist()
+        // Don't overwrite a value a concurrent download stored while we were checking.
+        modelReadyCache.compareAndSet(null, ready)
+        return modelReadyCache.get() ?: ready
+    }
+
+    private fun modelFilesExist(): Boolean {
         return modelDir.exists() &&
                 File(modelDir, ENCODER_FILE).exists() &&
                 File(modelDir, DECODER_FILE).exists() &&
                 File(modelDir, TOKENS_FILE).exists()
     }
 
-    suspend fun ensureModelDownloaded(): Boolean = withContext(Dispatchers.IO) {
-        if (isModelReady()) {
+    /**
+     * Downloads the model if needed and initialises the recognizer. Concurrent callers (e.g. a
+     * headset capture and an on-screen capture) share one in-flight attempt and its result.
+     */
+    suspend fun ensureModelDownloaded(): Boolean = downloadFlight.run { downloadAndInitialize() }
+
+    private suspend fun downloadAndInitialize(): Boolean {
+        // Runs on Dispatchers.IO via [scope]; checks the disk rather than the cache.
+        if (modelFilesExist()) {
+            modelReadyCache.set(true)
             initializeRecognizer()
             _modelState.value = ModelState.Ready
-            return@withContext true
+            return true
         }
 
-        try {
+        return try {
             _modelState.value = ModelState.Downloading(0)
             downloadModelFiles()
             initializeRecognizer()
+            modelReadyCache.set(true)
             _modelState.value = ModelState.Ready
             true
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Failed to download or initialize model", e)
             _modelState.value = ModelState.Error(e.message ?: "Download failed")
-            // Clean up partial download
+            // Clean up the partial download. Safe: this is the only attempt in flight, so no
+            // other caller can be writing to (or have just completed) the model directory.
             modelDir.deleteRecursively()
+            modelReadyCache.set(false)
             false
         }
     }
