@@ -123,19 +123,20 @@ class SettingsDataStore(private val context: Context) {
         }
     }
 
-    suspend fun incrementApiCallCount() {
-        context.dataStore.edit { preferences ->
-            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                .format(java.util.Date())
-            val storedDate = preferences[API_CALL_COUNT_DATE] ?: ""
+    // Calls are counted in memory and written in batches (see ApiCallCounter) rather than
+    // rewriting and fsyncing the DataStore file on every request. [apiCallCount] trails the
+    // in-memory count by at most the counter's flush delay.
+    private val apiCallCounter = ApiCallCounter(flush = ::addApiCalls)
 
-            if (storedDate == today) {
-                preferences[API_CALL_COUNT] = (preferences[API_CALL_COUNT] ?: 0) + 1
-            } else {
-                // New day, reset counter
-                preferences[API_CALL_COUNT] = 1
-                preferences[API_CALL_COUNT_DATE] = today
-            }
+    fun incrementApiCallCount() {
+        apiCallCounter.record(getTodayDate())
+    }
+
+    private suspend fun addApiCalls(batch: ApiCallBatch) {
+        context.dataStore.edit { preferences ->
+            val (date, count) = batch.mergeInto(preferences[API_CALL_COUNT_DATE], preferences[API_CALL_COUNT])
+            preferences[API_CALL_COUNT_DATE] = date
+            preferences[API_CALL_COUNT] = count
         }
     }
 

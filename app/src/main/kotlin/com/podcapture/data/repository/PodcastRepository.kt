@@ -31,6 +31,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URL
+import com.podcapture.data.rss.FeedFetcher
+import com.podcapture.util.mapConcurrently
+import org.koin.core.context.GlobalContext
 
 /**
  * Repository for managing bookmarked podcasts, cached episodes, and playback history.
@@ -40,10 +43,16 @@ class PodcastRepository(
     private val api: PodcastIndexApi,
     private val podcastDao: PodcastDao,
     private val audioFileDao: AudioFileDao,
-    private val settingsDataStore: SettingsDataStore
+    private val settingsDataStore: SettingsDataStore,
+    // Resolved from Koin by default so the DI wiring in AppModule stays unchanged.
+    private val feedFetcher: FeedFetcher = GlobalContext.get().get()
 ) {
     companion object {
         private const val MAX_EPISODES = 1000
+
+        // Feeds refreshed at once by getLatestEpisodes(); enough to overlap network latency
+        // without flooding the Podcast Index API or the shared connection pool.
+        private const val MAX_PARALLEL_REFRESHES = 4
     }
 
     // Background scope for fire-and-forget writes (e.g. periodic playhead saves) that must
@@ -112,9 +121,8 @@ class PodcastRepository(
         // Refresh episodes for all bookmarked podcasts if it's a new day or forced
         if (forceRefresh || lastCacheDate != today) {
             val bookmarkedPodcasts = podcastDao.getAllBookmarkedPodcasts().first()
-            for (podcast in bookmarkedPodcasts) {
-                refreshEpisodes(podcast.id)
-            }
+            // Each refresh reports its own failure as a Result, so one bad feed never stops the rest.
+            bookmarkedPodcasts.mapConcurrently(MAX_PARALLEL_REFRESHES) { refreshEpisodes(it.id) }
             settingsDataStore.setLatestEpisodesCacheDate(today)
         }
 
@@ -205,7 +213,7 @@ class PodcastRepository(
             if (response.status == "true") {
                 val episodes = response.items.map { it.toDomain().toCachedEpisode() }
                 if (episodes.isNotEmpty()) {
-                    podcastDao.insertEpisodes(episodes) // REPLACE strategy handles duplicates
+                    podcastDao.insertEpisodes(episodes) // Already-cached episodes are updated, not duplicated
                 }
                 Result.success(Unit)
             } else {
@@ -223,13 +231,13 @@ class PodcastRepository(
             return Result.failure(Exception("Podcast has no feed URL to refresh"))
         }
         return try {
-            val connection = URL(podcast.feedUrl).openConnection().apply {
-                connectTimeout = 15_000
-                readTimeout = 15_000
-                setRequestProperty("User-Agent", "PodCapture/1.0")
-                setRequestProperty("Accept", "application/rss+xml, application/xml, text/xml, */*")
+            val fetched = feedFetcher.fetch(podcast.feedUrl) { rssFeedParser.parse(it) }
+            // 304 Not Modified: the feed is what we parsed last time. Only trust that when its
+            // episodes are actually in the DB.
+            if (fetched.unchanged && podcastDao.getNewestEpisodeTimestamp(podcastId) != null) {
+                return Result.success(Unit)
             }
-            val feed = connection.getInputStream().use { rssFeedParser.parse(it) }
+            val feed = fetched.value
             val episodes = feed.episodes.map { ep ->
                 val epId = "$podcastId:${ep.guid}".fold(0L) { acc, c -> acc * 31L + c.code }
                     .let { h -> if (h >= 0) -(h + 1) else h }
@@ -611,14 +619,7 @@ class PodcastRepository(
 
     private suspend fun importViaRssParsing(feedUrl: String): Result<String> {
         return try {
-            val connection = URL(feedUrl).openConnection().apply {
-                connectTimeout = 15_000
-                readTimeout = 15_000
-                setRequestProperty("User-Agent", "PodCapture/1.0")
-                setRequestProperty("Accept", "application/rss+xml, application/xml, text/xml, */*")
-            }
-
-            val feed = connection.getInputStream().use { rssFeedParser.parse(it) }
+            val feed = feedFetcher.fetch(feedUrl) { rssFeedParser.parse(it) }.value
 
             if (feed.title.isEmpty()) {
                 return Result.failure(Exception("Could not read RSS feed — is the URL correct?"))
