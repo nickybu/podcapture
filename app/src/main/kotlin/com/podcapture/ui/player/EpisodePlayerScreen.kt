@@ -69,8 +69,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextAlign
@@ -634,97 +636,10 @@ private fun ShowNotesSection(
                 ) {
                     Spacer(modifier = Modifier.height(8.dp))
                     if (description.isNotEmpty()) {
-                        // Parse HTML to Spanned, preserving links
-                        val spanned = HtmlCompat.fromHtml(
-                            description,
-                            HtmlCompat.FROM_HTML_MODE_LEGACY
-                        )
-
-                        // Build AnnotatedString with clickable links and timestamps
-                        val annotatedString = buildAnnotatedString {
-                            val text = spanned.toString()
-                                .replace(Regex("\n{3,}"), "\n\n")  // Max 2 line breaks
-                                .trim()
-
-                            append(text)
-
-                            // Track URL ranges to avoid overlapping with timestamps
-                            val urlRanges = mutableListOf<IntRange>()
-
-                            // Find and annotate URLs from the HTML
-                            spanned.getSpans(0, spanned.length, URLSpan::class.java).forEach { urlSpan ->
-                                val start = spanned.getSpanStart(urlSpan)
-                                val end = spanned.getSpanEnd(urlSpan)
-                                // Adjust for trimmed content
-                                val trimOffset = spanned.toString().indexOf(text.take(20).ifEmpty { text })
-                                val adjustedStart = (start - trimOffset).coerceAtLeast(0)
-                                val adjustedEnd = (end - trimOffset).coerceAtMost(text.length)
-
-                                if (adjustedStart >= 0 && adjustedEnd <= text.length && adjustedStart < adjustedEnd) {
-                                    urlRanges.add(adjustedStart until adjustedEnd)
-                                    addStyle(
-                                        style = SpanStyle(
-                                            color = linkColor,
-                                            textDecoration = TextDecoration.Underline
-                                        ),
-                                        start = adjustedStart,
-                                        end = adjustedEnd
-                                    )
-                                    addStringAnnotation(
-                                        tag = "URL",
-                                        annotation = urlSpan.url,
-                                        start = adjustedStart,
-                                        end = adjustedEnd
-                                    )
-                                }
-                            }
-
-                            // Find and annotate timestamps (formats: 1:23:45, 12:34, 0:45)
-                            val timestampRegex = Regex("""(?<!\d)(\d{1,2}):(\d{2})(?::(\d{2}))?(?!\d)""")
-                            timestampRegex.findAll(text).forEach { match ->
-                                val hours: Int
-                                val minutes: Int
-                                val seconds: Int
-
-                                if (match.groupValues[3].isNotEmpty()) {
-                                    // Format: H:MM:SS or HH:MM:SS
-                                    hours = match.groupValues[1].toIntOrNull() ?: 0
-                                    minutes = match.groupValues[2].toIntOrNull() ?: 0
-                                    seconds = match.groupValues[3].toIntOrNull() ?: 0
-                                } else {
-                                    // Format: M:SS or MM:SS
-                                    hours = 0
-                                    minutes = match.groupValues[1].toIntOrNull() ?: 0
-                                    seconds = match.groupValues[2].toIntOrNull() ?: 0
-                                }
-
-                                // Validate reasonable timestamp values
-                                if (minutes < 60 && seconds < 60) {
-                                    val timestampMs = ((hours * 3600L) + (minutes * 60L) + seconds) * 1000L
-
-                                    // Check if this range doesn't overlap with an existing URL annotation
-                                    val overlapsWithUrl = urlRanges.any { urlRange ->
-                                        match.range.first < urlRange.last && match.range.last >= urlRange.first
-                                    }
-
-                                    if (!overlapsWithUrl) {
-                                        addStyle(
-                                            style = SpanStyle(
-                                                color = timestampColor,
-                                                textDecoration = TextDecoration.Underline
-                                            ),
-                                            start = match.range.first,
-                                            end = match.range.last + 1
-                                        )
-                                        addStringAnnotation(
-                                            tag = "TIMESTAMP",
-                                            annotation = timestampMs.toString(),
-                                            start = match.range.first,
-                                            end = match.range.last + 1
-                                        )
-                                    }
-                                }
-                            }
+                        // Parsing is expensive; only redo it when the notes or colors change, not on
+                        // every recomposition of the player.
+                        val annotatedString = remember(description, linkColor, timestampColor) {
+                            buildShowNotesText(description, linkColor, timestampColor)
                         }
 
                         ClickableText(
@@ -875,5 +790,108 @@ private fun formatDuration(ms: Long): String {
         String.format("%d:%02d:%02d", hours, minutes, seconds)
     } else {
         String.format("%02d:%02d", minutes, seconds)
+    }
+}
+
+// Hoisted so they are compiled once, not on every call.
+private val ExcessNewlinesRegex = Regex("\n{3,}")
+private val ShowNotesTimestampRegex = Regex("""(?<!\d)(\d{1,2}):(\d{2})(?::(\d{2}))?(?!\d)""")
+
+/**
+ * Converts show-notes HTML to text with clickable URL and timestamp annotations.
+ * Parses HTML and scans the text with regexes, so callers must remember the result.
+ */
+private fun buildShowNotesText(
+    description: String,
+    linkColor: Color,
+    timestampColor: Color
+): AnnotatedString {
+    // Parse HTML to Spanned, preserving links
+    val spanned = HtmlCompat.fromHtml(description, HtmlCompat.FROM_HTML_MODE_LEGACY)
+
+    // Build AnnotatedString with clickable links and timestamps
+    return buildAnnotatedString {
+        val text = spanned.toString()
+            .replace(ExcessNewlinesRegex, "\n\n")  // Max 2 line breaks
+            .trim()
+
+        append(text)
+
+        // Track URL ranges to avoid overlapping with timestamps
+        val urlRanges = mutableListOf<IntRange>()
+
+        // Find and annotate URLs from the HTML
+        spanned.getSpans(0, spanned.length, URLSpan::class.java).forEach { urlSpan ->
+            val start = spanned.getSpanStart(urlSpan)
+            val end = spanned.getSpanEnd(urlSpan)
+            // Adjust for trimmed content
+            val trimOffset = spanned.toString().indexOf(text.take(20).ifEmpty { text })
+            val adjustedStart = (start - trimOffset).coerceAtLeast(0)
+            val adjustedEnd = (end - trimOffset).coerceAtMost(text.length)
+
+            if (adjustedStart >= 0 && adjustedEnd <= text.length && adjustedStart < adjustedEnd) {
+                urlRanges.add(adjustedStart until adjustedEnd)
+                addStyle(
+                    style = SpanStyle(
+                        color = linkColor,
+                        textDecoration = TextDecoration.Underline
+                    ),
+                    start = adjustedStart,
+                    end = adjustedEnd
+                )
+                addStringAnnotation(
+                    tag = "URL",
+                    annotation = urlSpan.url,
+                    start = adjustedStart,
+                    end = adjustedEnd
+                )
+            }
+        }
+
+        // Find and annotate timestamps (formats: 1:23:45, 12:34, 0:45)
+        ShowNotesTimestampRegex.findAll(text).forEach { match ->
+            val hours: Int
+            val minutes: Int
+            val seconds: Int
+
+            if (match.groupValues[3].isNotEmpty()) {
+                // Format: H:MM:SS or HH:MM:SS
+                hours = match.groupValues[1].toIntOrNull() ?: 0
+                minutes = match.groupValues[2].toIntOrNull() ?: 0
+                seconds = match.groupValues[3].toIntOrNull() ?: 0
+            } else {
+                // Format: M:SS or MM:SS
+                hours = 0
+                minutes = match.groupValues[1].toIntOrNull() ?: 0
+                seconds = match.groupValues[2].toIntOrNull() ?: 0
+            }
+
+            // Validate reasonable timestamp values
+            if (minutes < 60 && seconds < 60) {
+                val timestampMs = ((hours * 3600L) + (minutes * 60L) + seconds) * 1000L
+
+                // Check if this range doesn't overlap with an existing URL annotation
+                val overlapsWithUrl = urlRanges.any { urlRange ->
+                    match.range.first < urlRange.last && match.range.last >= urlRange.first
+                }
+
+                if (!overlapsWithUrl) {
+                    addStyle(
+                        style = SpanStyle(
+                            color = timestampColor,
+                            textDecoration = TextDecoration.Underline
+                        ),
+                        start = match.range.first,
+                        end = match.range.last + 1
+                    )
+                    addStringAnnotation(
+                        tag = "TIMESTAMP",
+                        annotation = timestampMs.toString(),
+                        start = match.range.first,
+                        end = match.range.last + 1
+                    )
+                }
+            }
+        }
     }
 }
