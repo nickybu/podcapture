@@ -37,6 +37,20 @@ data class PlaybackState(
     val errorMessage: String? = null
 )
 
+/**
+ * Clamps a seek target to the playable range.
+ *
+ * Before the media is prepared, Media3 reports `C.TIME_UNSET` (a large negative value)
+ * for the duration. Clamping against it would force every seek to 0 and silently drop
+ * the resume position, so the upper bound only applies once the duration is known.
+ */
+internal fun clampSeekPosition(positionMs: Long, durationMs: Long): Long =
+    if (durationMs > 0L) {
+        positionMs.coerceIn(0L, durationMs)
+    } else {
+        positionMs.coerceAtLeast(0L)
+    }
+
 class AudioPlayerService(
     private val context: Context
 ) {
@@ -205,15 +219,7 @@ class AudioPlayerService(
 
     fun seekTo(positionMs: Long) {
         mediaController?.let { controller ->
-            // Before the media is prepared, controller.duration is C.TIME_UNSET
-            // (Long.MIN_VALUE). Only clamp against duration when it's known — otherwise
-            // we'd force the seek to 0 and silently drop resume-from-history.
-            val duration = controller.duration
-            val clampedPosition = if (duration > 0L) {
-                positionMs.coerceIn(0L, duration)
-            } else {
-                positionMs.coerceAtLeast(0L)
-            }
+            val clampedPosition = clampSeekPosition(positionMs, controller.duration)
             controller.seekTo(clampedPosition)
             _playbackState.value = _playbackState.value.copy(currentPositionMs = clampedPosition)
         }
@@ -221,9 +227,9 @@ class AudioPlayerService(
 
     fun seekRelative(deltaMs: Long) {
         mediaController?.let { controller ->
-            val newPosition = (controller.currentPosition + deltaMs)
-                .coerceIn(0L, controller.duration.coerceAtLeast(0L))
-            seekTo(newPosition)
+            // seekTo() applies the duration-aware clamp; clamping here against
+            // duration.coerceAtLeast(0) turned every skip during preparation into seekTo(0).
+            seekTo(controller.currentPosition + deltaMs)
         }
     }
 
