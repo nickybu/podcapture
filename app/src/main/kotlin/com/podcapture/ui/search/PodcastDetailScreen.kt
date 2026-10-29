@@ -226,6 +226,7 @@ fun PodcastDetailScreen(
                         items(uiState.displayedEpisodes, key = { it.episode.id }) { episodeItem ->
                             EpisodeCard(
                                 episodeItem = episodeItem,
+                                downloadInfo = uiState.downloadInfo(episodeItem.episode.id),
                                 podcastArtworkUrl = uiState.podcast?.artworkUrl,
                                 onClick = { onEpisodeSelected(episodeItem.episode) },
                                 onDownload = { viewModel.onDownloadEpisode(episodeItem.episode.id) }
@@ -382,6 +383,7 @@ private fun PodcastHeader(
 @Composable
 private fun EpisodeCard(
     episodeItem: EpisodeUiItem,
+    downloadInfo: EpisodeDownloadInfo,
     podcastArtworkUrl: String?,
     onClick: () -> Unit,
     onDownload: () -> Unit,
@@ -464,7 +466,7 @@ private fun EpisodeCard(
                         }
                         if (episode.publishedDate > 0) {
                             Text(
-                                text = formatDate(episode.publishedDate),
+                                text = remember(episode.publishedDate) { formatDate(episode.publishedDate) },
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -473,7 +475,7 @@ private fun EpisodeCard(
                 }
 
                 // Download/Downloaded state button
-                when (episodeItem.downloadState) {
+                when (downloadInfo.state) {
                     EpisodeDownloadState.NotDownloaded -> {
                         IconButton(onClick = onDownload) {
                             Icon(
@@ -490,7 +492,7 @@ private fun EpisodeCard(
                             contentAlignment = Alignment.Center
                         ) {
                             CircularProgressIndicator(
-                                progress = { episodeItem.downloadProgress / 100f },
+                                progress = { downloadInfo.percent / 100f },
                                 modifier = Modifier.size(28.dp),
                                 strokeWidth = 3.dp
                             )
@@ -533,16 +535,16 @@ private fun EpisodeCard(
             }
 
             // Download progress bar with size info
-            if (episodeItem.downloadState == EpisodeDownloadState.Downloading) {
+            if (downloadInfo.state == EpisodeDownloadState.Downloading) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Column {
                     LinearProgressIndicator(
-                        progress = { episodeItem.downloadProgress / 100f },
+                        progress = { downloadInfo.percent / 100f },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "${formatBytes(episodeItem.downloadedBytes)} / ${formatBytes(episodeItem.totalBytes)}",
+                        text = "${formatBytes(downloadInfo.downloadedBytes)} / ${formatBytes(downloadInfo.totalBytes)}",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.align(Alignment.End)
@@ -643,11 +645,12 @@ private fun formatDuration(seconds: Int): String {
     }
 }
 
-private fun formatDate(timestamp: Long): String {
-    val date = java.util.Date(timestamp * 1000) // API returns seconds
-    val format = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
-    return format.format(date)
-}
+// Shared by every episode card rather than built per card. SimpleDateFormat isn't
+// thread-safe, but it's only used from composition, which runs on the main thread.
+private val episodeDateFormat = java.text.SimpleDateFormat("MMM d, yyyy", java.util.Locale.getDefault())
+
+private fun formatDate(timestamp: Long): String =
+    episodeDateFormat.format(java.util.Date(timestamp * 1000)) // API returns seconds
 
 private fun formatBytes(bytes: Long): String {
     if (bytes <= 0) return "0 B"
