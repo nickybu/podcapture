@@ -4,7 +4,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -12,10 +15,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -62,13 +70,21 @@ fun PodCaptureNavHost(
 
     // Determine if we should show mini player
     val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
-    val isOnPlayerScreen = currentRoute?.contains("Player") == true
+    val isOnPlayerScreen = navBackStackEntry?.destination?.let {
+        it.hasRoute<NavRoute.Player>() || it.hasRoute<NavRoute.EpisodePlayer>()
+    } == true
 
     // Show mini player when audio is loaded and not on player screen
     val showMiniPlayer = currentAudioFileId != null &&
             !isOnPlayerScreen &&
             playbackState.playerState != PlayerState.IDLE
+
+    // Measured height of the mini player, including the navigation bar inset it pads itself
+    // by, so content and the snackbar clear it whatever the navigation mode.
+    var miniPlayerHeightPx by remember { mutableIntStateOf(0) }
+    val miniPlayerHeight = with(LocalDensity.current) {
+        if (showMiniPlayer) miniPlayerHeightPx.toDp() else 0.dp
+    }
 
     // Handle capture messages from mini player
     LaunchedEffect(captureState.lastCaptureSuccess) {
@@ -91,7 +107,10 @@ fun PodCaptureNavHost(
             startDestination = NavRoute.Home,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(bottom = if (showMiniPlayer) 72.dp else 0.dp)
+                .padding(bottom = miniPlayerHeight)
+                // The mini player already covers the navigation bar; stop screens' Scaffolds
+                // from adding that inset again above it.
+                .consumeWindowInsets(PaddingValues(bottom = miniPlayerHeight))
         ) {
             composable<NavRoute.Home> {
                 HomeScreen(
@@ -203,13 +222,23 @@ fun PodCaptureNavHost(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = if (showMiniPlayer) 120.dp else 16.dp)
+                .then(
+                    if (showMiniPlayer) {
+                        Modifier.padding(bottom = miniPlayerHeight + 8.dp)
+                    } else {
+                        Modifier
+                            .navigationBarsPadding()
+                            .padding(bottom = 16.dp)
+                    }
+                )
         )
 
         // Mini player at bottom
         AnimatedVisibility(
             visible = showMiniPlayer,
-            modifier = Modifier.align(Alignment.BottomCenter),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .onSizeChanged { miniPlayerHeightPx = it.height },
             enter = slideInVertically(initialOffsetY = { it }),
             exit = slideOutVertically(targetOffsetY = { it })
         ) {
@@ -228,14 +257,37 @@ fun PodCaptureNavHost(
                         if (id.startsWith("episode_")) {
                             val episodeId = id.removePrefix("episode_").toLongOrNull()
                             if (episodeId != null) {
-                                navController.navigate(NavRoute.EpisodePlayer(episodeId, 0L))
+                                navController.openPlayer(NavRoute.EpisodePlayer(episodeId, 0L))
                             }
                         } else {
-                            navController.navigate(NavRoute.Player(id))
+                            navController.openPlayer(NavRoute.Player(id))
                         }
                     }
                 }
             )
         }
+    }
+}
+
+/**
+ * Opens the player for the mini player's track without stacking a second copy.
+ *
+ * The mini player is visible on the Viewer, which sits above the player it was opened from,
+ * so first pop back to the nearest player of the same kind; if that is the track that is
+ * playing, we're done. Otherwise push it (single-top, so a player left on top is replaced).
+ * Unlike popping to Home, this keeps Podcast detail › Player › Back returning to the detail.
+ */
+private fun NavHostController.openPlayer(route: NavRoute) {
+    val isOpen = when (route) {
+        is NavRoute.EpisodePlayer ->
+            popBackStack<NavRoute.EpisodePlayer>(inclusive = false) &&
+                currentBackStackEntry?.toRoute<NavRoute.EpisodePlayer>()?.episodeId == route.episodeId
+        is NavRoute.Player ->
+            popBackStack<NavRoute.Player>(inclusive = false) &&
+                currentBackStackEntry?.toRoute<NavRoute.Player>()?.audioFileId == route.audioFileId
+        else -> false
+    }
+    if (!isOpen) {
+        navigate(route) { launchSingleTop = true }
     }
 }
