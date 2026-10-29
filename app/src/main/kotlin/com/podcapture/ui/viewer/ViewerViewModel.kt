@@ -68,6 +68,17 @@ sealed class ObsidianExportResult {
     data class Error(val message: String) : ObsidianExportResult()
 }
 
+/**
+ * Returns "$baseName.md", or "$baseName (n).md" with the smallest n >= 2 that is not taken.
+ */
+internal fun uniqueMarkdownFileName(baseName: String, isTaken: (String) -> Boolean): String {
+    val first = "$baseName.md"
+    if (!isTaken(first)) return first
+    var n = 2
+    while (isTaken("$baseName ($n).md")) n++
+    return "$baseName ($n).md"
+}
+
 class ViewerViewModel(
     private val audioFileId: String,
     private val context: Context,
@@ -454,13 +465,17 @@ class ViewerViewModel(
                     .replace(Regex("-[\\s-]*-"), "-")  // Collapse dashes with spaces/dashes between them
                     .replace(Regex("\\s+"), " ")  // Collapse multiple spaces
                     .trim('-', ' ')
-                val fileName = "${safeTitle}.md"
+                    .ifBlank { "Untitled" }
 
-                // Check if file already exists and delete it
-                vaultDir.findFile(fileName)?.delete()
+                // Never overwrite or delete an existing note: if the name is taken (e.g. a
+                // hand-written note with the same title), pick "Title (2).md", "Title (3).md", ...
+                // Compared case-insensitively since shared storage is often case-insensitive.
+                val existingNames = vaultDir.listFiles().mapNotNull { it.name?.lowercase() }.toSet()
+                val fileName = uniqueMarkdownFileName(safeTitle) { it.lowercase() in existingNames }
 
-                // Create new file
-                val newFile = vaultDir.createFile("text/markdown", safeTitle)
+                // Pass the full display name with a generic MIME type so the ".md" extension is
+                // explicit rather than relying on the provider mapping text/markdown to ".md".
+                val newFile = vaultDir.createFile("application/octet-stream", fileName)
                     ?: throw IllegalStateException("Cannot create file in vault folder")
 
                 // Write content
@@ -469,7 +484,7 @@ class ViewerViewModel(
                 } ?: throw IllegalStateException("Cannot write to file")
 
                 _uiState.value = _uiState.value.copy(
-                    obsidianExportResult = ObsidianExportResult.Success(fileName),
+                    obsidianExportResult = ObsidianExportResult.Success(newFile.name ?: fileName),
                     showObsidianDialog = false
                 )
             } catch (e: Exception) {

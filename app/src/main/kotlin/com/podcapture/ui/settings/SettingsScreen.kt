@@ -54,7 +54,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -175,6 +174,20 @@ fun SettingsScreen(
                     }
                 }
             },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearImportResult() }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
+    // Import failure dialog
+    uiState.importError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { viewModel.clearImportResult() },
+            title = { Text("Import Failed") },
+            text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = { viewModel.clearImportResult() }) {
                     Text("OK")
@@ -667,9 +680,10 @@ private fun PodcastIndexCredentialsSection(
     onSave: (apiKey: String, apiSecret: String) -> Unit,
     onGetApiKey: () -> Unit
 ) {
-    // Edit locally and only persist on Save, so a half-typed key is never used for requests
-    var apiKey by remember(savedApiKey) { mutableStateOf(savedApiKey) }
-    var apiSecret by remember(savedApiSecret) { mutableStateOf(savedApiSecret) }
+    // Edit locally and only persist on Save, so a half-typed key is never used for requests.
+    // rememberSaveable keeps a pasted-but-unsaved key across rotation.
+    var apiKey by rememberSaveable(savedApiKey) { mutableStateOf(savedApiKey) }
+    var apiSecret by rememberSaveable(savedApiSecret) { mutableStateOf(savedApiSecret) }
     var showSecret by rememberSaveable { mutableStateOf(false) }
 
     val hasChanges = apiKey.trim() != savedApiKey || apiSecret.trim() != savedApiSecret
@@ -835,15 +849,19 @@ private fun ColorInputField(
     onValueChange: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isValid = isValidHexColor(value)
-    val parsedColor = parseHexColor(value)
+    // Edit locally and only persist complete, valid colors, so partial input like "#1" doesn't
+    // flip the whole app to the default palette mid-edit. Keyed on the persisted value so
+    // external changes (e.g. "Reset to Default Colors") replace the local text.
+    var text by rememberSaveable(value) { mutableStateOf(value) }
+    val isValid = isValidHexColor(text)
+    val parsedColor = parseHexColor(text)
 
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
         OutlinedTextField(
-            value = value,
+            value = text,
             onValueChange = { newValue ->
                 // Ensure the value starts with # and limit to 7 characters
                 val cleanValue = if (newValue.startsWith("#")) {
@@ -851,12 +869,15 @@ private fun ColorInputField(
                 } else {
                     "#" + newValue.take(6).uppercase()
                 }
-                onValueChange(cleanValue)
+                text = cleanValue
+                if (isValidHexColor(cleanValue) && cleanValue != value) {
+                    onValueChange(cleanValue)
+                }
             },
             label = { Text(label) },
             singleLine = true,
-            isError = !isValid && value.length > 1,
-            colors = if (!isValid && value.length > 1) {
+            isError = !isValid && text.length > 1,
+            colors = if (!isValid && text.length > 1) {
                 OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = MaterialTheme.colorScheme.error,
                     unfocusedBorderColor = MaterialTheme.colorScheme.error

@@ -261,8 +261,9 @@ fun ViewerScreen(
         }
 
         // Transcript formatting dialog
-        if (uiState.editingTranscriptCaptureId != null) {
+        uiState.editingTranscriptCaptureId?.let { editingTranscriptCaptureId ->
             TranscriptEditDialog(
+                captureId = editingTranscriptCaptureId,
                 formattedText = uiState.editingFormattedTranscript,
                 originalTranscription = uiState.editingOriginalTranscription,
                 validationError = uiState.transcriptValidationError,
