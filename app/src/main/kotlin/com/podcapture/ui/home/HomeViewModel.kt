@@ -98,7 +98,7 @@ data class HomeUiState(
     val bookmarkedAudioFiles: List<AudioFile> = emptyList(),
     val bookmarkItems: List<BookmarkItem> = emptyList(),  // Combined and sorted
     val bookmarkViewMode: BookmarkViewMode = BookmarkViewMode.GRID,
-    val bookmarkFilterType: BookmarkFilterType = BookmarkFilterType.PODCASTS,
+    val bookmarkFilterType: BookmarkFilterType = BookmarkFilterType.ALL,
     // History items (unified recent + all)
     val recentItems: List<RecentItem> = emptyList(),
     val recentFilterType: RecentFilterType = RecentFilterType.ALL,

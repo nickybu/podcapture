@@ -22,15 +22,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
@@ -41,7 +40,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Podcasts
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -70,6 +68,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -260,9 +259,14 @@ fun HomeScreen(
                         } else {
                             when (uiState.bookmarkViewMode) {
                                 BookmarkViewMode.GRID -> {
-                                    item {
-                                        BookmarksGrid(
-                                            items = displayedBookmarks,
+                                    // One list item per row of covers, so every row is
+                                    // measured at its real height on any screen width.
+                                    items(
+                                        displayedBookmarks.chunked(BOOKMARK_GRID_COLUMNS),
+                                        key = { row -> "grid_row_${bookmarkKey(row.first())}" }
+                                    ) { row ->
+                                        BookmarkGridRow(
+                                            items = row,
                                             onPodcastClick = { viewModel.onPodcastClicked(it) },
                                             onAudioFileClick = { viewModel.onFileClicked(it) }
                                         )
@@ -304,25 +308,23 @@ fun HomeScreen(
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            // Sort toggle: the arrow shows the current direction
+                            IconButton(
+                                onClick = { viewModel.onToggleSortOrder() },
+                                modifier = Modifier.size(32.dp)
                             ) {
-                                // Sort toggle
-                                IconButton(
-                                    onClick = { viewModel.onToggleSortOrder() },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Schedule,
-                                        contentDescription = when (uiState.recentSortOrder) {
-                                            SortOrder.NEWEST -> "Sorted newest first"
-                                            SortOrder.OLDEST -> "Sorted oldest first"
-                                        },
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                                Icon(
+                                    imageVector = when (uiState.recentSortOrder) {
+                                        SortOrder.NEWEST -> Icons.Default.ArrowDownward
+                                        SortOrder.OLDEST -> Icons.Default.ArrowUpward
+                                    },
+                                    contentDescription = when (uiState.recentSortOrder) {
+                                        SortOrder.NEWEST -> "Sorted newest first. Tap to sort oldest first"
+                                        SortOrder.OLDEST -> "Sorted oldest first. Tap to sort newest first"
+                                    },
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
                     }
@@ -367,19 +369,6 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
-                    // Sort order indicator
-                    item {
-                        Text(
-                            text = when (uiState.recentSortOrder) {
-                                SortOrder.NEWEST -> "Newest first"
-                                SortOrder.OLDEST -> "Oldest first"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
                     val displayedRecent = uiState.filteredRecentItems
                     if (displayedRecent.isEmpty()) {
                         item {
@@ -400,7 +389,6 @@ fun HomeScreen(
                         items(displayedRecent, key = { it.id }) { item ->
                             RecentItemCard(
                                 item = item,
-                                showDeleteButton = uiState.recentFilterType == RecentFilterType.DOWNLOADED,
                                 onFileClick = { fileId ->
                                     viewModel.onFileClicked(fileId)
                                 },
@@ -461,18 +449,33 @@ private fun EmptyState(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "No audio files yet",
+            text = "Nothing here yet",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Tap + to open an audio file",
+            text = "Search for a podcast or tap + to open an audio file",
+            textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
 }
+
+// Built once instead of on every call from composition. SimpleDateFormat is not thread
+// safe; these are only used from composition, which runs on the main thread.
+private val shortDateFormat = SimpleDateFormat("MMM d", Locale.getDefault())
+private val isoDateParser = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+private val compactDateParser = SimpleDateFormat("yyyyMMdd", Locale.US)
+private val monthDateParser = SimpleDateFormat("MMM d yyyy", Locale.US)
+
+private val isoDateRegex = Regex("""(\d{4})-(\d{2})-(\d{2})""")
+private val compactDateRegex = Regex("""(\d{8})""")
+private val monthDateRegex = Regex(
+    """(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})""",
+    RegexOption.IGNORE_CASE
+)
 
 private fun formatRelativeTime(timestamp: Long): String {
     val now = System.currentTimeMillis()
@@ -483,7 +486,7 @@ private fun formatRelativeTime(timestamp: Long): String {
         diff < 3600_000 -> "${diff / 60_000}m ago"
         diff < 86400_000 -> "${diff / 3600_000}h ago"
         diff < 604800_000 -> "${diff / 86400_000}d ago"
-        else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
+        else -> shortDateFormat.format(Date(timestamp))
     }
 }
 
@@ -494,33 +497,30 @@ private fun formatRelativeTime(timestamp: Long): String {
  */
 private fun extractDateFromFilename(filename: String): String {
     // Try pattern: yyyy-MM-dd (e.g., "2024-01-15_recording.mp3")
-    val isoPattern = Regex("""(\d{4})-(\d{2})-(\d{2})""")
-    isoPattern.find(filename)?.let { match ->
+    isoDateRegex.find(filename)?.let { match ->
         try {
             val (year, month, day) = match.destructured
-            val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse("$year-$month-$day")
-            return date?.let { SimpleDateFormat("MMM d", Locale.getDefault()).format(it) } ?: filename
+            val date = isoDateParser.parse("$year-$month-$day")
+            return date?.let { shortDateFormat.format(it) } ?: filename
         } catch (e: Exception) { /* continue */ }
     }
 
     // Try pattern: yyyyMMdd (e.g., "20240115_audio.mp3")
-    val compactPattern = Regex("""(\d{8})""")
-    compactPattern.find(filename)?.let { match ->
+    compactDateRegex.find(filename)?.let { match ->
         try {
             val dateStr = match.groupValues[1]
-            val date = SimpleDateFormat("yyyyMMdd", Locale.US).parse(dateStr)
-            return date?.let { SimpleDateFormat("MMM d", Locale.getDefault()).format(it) } ?: filename
+            val date = compactDateParser.parse(dateStr)
+            return date?.let { shortDateFormat.format(it) } ?: filename
         } catch (e: Exception) { /* continue */ }
     }
 
     // Try pattern: MMM d, yyyy or MMM d yyyy (e.g., "Recording Jan 15, 2024.mp3")
-    val monthPattern = Regex("""(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})""", RegexOption.IGNORE_CASE)
-    monthPattern.find(filename)?.let { match ->
+    monthDateRegex.find(filename)?.let { match ->
         try {
-            val date = SimpleDateFormat("MMM d yyyy", Locale.US).parse(
+            val date = monthDateParser.parse(
                 "${match.groupValues[1]} ${match.groupValues[2]} ${match.groupValues[3]}"
             )
-            return date?.let { SimpleDateFormat("MMM d", Locale.getDefault()).format(it) } ?: filename
+            return date?.let { shortDateFormat.format(it) } ?: filename
         } catch (e: Exception) { /* continue */ }
     }
 
@@ -580,32 +580,30 @@ private fun BookmarkFilterChips(
     }
 }
 
+private const val BOOKMARK_GRID_COLUMNS = 5
+
+private fun bookmarkKey(item: BookmarkItem): String = when (item) {
+    is BookmarkItem.PodcastBookmark -> "podcast_${item.podcast.id}"
+    is BookmarkItem.AudioFileBookmark -> "file_${item.audioFile.id}"
+}
+
 /**
- * Grid view showing bookmark cover photos (5 per row).
+ * One row of the bookmark grid: up to [BOOKMARK_GRID_COLUMNS] square covers, with empty
+ * slots in a short last row so the covers keep the same width as the rows above.
  * No bookmark toggle in this view - just the artwork.
  */
 @Composable
-private fun BookmarksGrid(
+private fun BookmarkGridRow(
     items: List<BookmarkItem>,
     onPodcastClick: (Long) -> Unit,
     onAudioFileClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(5),
-        modifier = modifier
-            .fillMaxWidth()
-            .height((((items.size + 4) / 5) * 72).dp), // Calculate height based on rows
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        userScrollEnabled = false // Parent LazyColumn handles scrolling
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(items, key = { item ->
-            when (item) {
-                is BookmarkItem.PodcastBookmark -> "grid_podcast_${item.podcast.id}"
-                is BookmarkItem.AudioFileBookmark -> "grid_file_${item.audioFile.id}"
-            }
-        }) { item ->
+        items.forEach { item ->
             BookmarkGridItem(
                 item = item,
                 onClick = {
@@ -613,8 +611,12 @@ private fun BookmarksGrid(
                         is BookmarkItem.PodcastBookmark -> onPodcastClick(item.podcast.id)
                         is BookmarkItem.AudioFileBookmark -> onAudioFileClick(item.audioFile.id)
                     }
-                }
+                },
+                modifier = Modifier.weight(1f)
             )
+        }
+        repeat(BOOKMARK_GRID_COLUMNS - items.size) {
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }
@@ -665,7 +667,7 @@ private fun BookmarkGridItem(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = extractDateFromFilename(item.audioFile.name),
+                            text = remember(item.audioFile.name) { extractDateFromFilename(item.audioFile.name) },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
@@ -863,13 +865,13 @@ private fun RecentFilterChips(
 
 /**
  * Card for a recent item (audio file or episode).
- * Long pressing a downloaded episode opens the delete confirmation dialog.
+ * Downloaded episodes show a delete button; long pressing one also opens the delete
+ * confirmation dialog.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RecentItemCard(
     item: RecentItem,
-    showDeleteButton: Boolean = false,
     onFileClick: (String) -> Unit,
     onEpisodeClick: (Long, Long) -> Unit,
     onDeleteClick: (RecentItem.EpisodeRecent) -> Unit = {},
@@ -1008,8 +1010,8 @@ private fun RecentItemCard(
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // Delete button (shown in Downloaded filter mode)
-                        if (showDeleteButton && item.isDownloaded) {
+                        // Delete button for any downloaded episode
+                        if (item.isDownloaded) {
                             IconButton(
                                 onClick = { onDeleteClick(item) },
                                 modifier = Modifier.size(32.dp)
