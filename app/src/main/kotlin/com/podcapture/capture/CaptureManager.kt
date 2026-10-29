@@ -133,11 +133,13 @@ class CaptureManager(
                     captureProgress = "Transcribing audio..."
                 )
 
-                val transcription = transcriptionService.transcribe(
+                // A failed transcription throws here, so nothing is saved and the reason
+                // surfaces through lastCaptureError.
+                val transcription = transcriptionService.transcribeResult(
                     audioUri = audioUri,
                     startMs = windowStart,
                     endMs = windowEnd
-                )
+                ).getOrThrow()
 
                 // Create capture
                 saveCapture(windowStart, windowEnd, transcription)
