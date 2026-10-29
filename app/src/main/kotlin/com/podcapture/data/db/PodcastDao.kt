@@ -7,6 +7,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.Upsert
 import com.podcapture.data.model.BookmarkedPodcast
 import com.podcapture.data.model.CachedEpisode
 import com.podcapture.data.model.EpisodePlaybackHistory
@@ -30,7 +31,10 @@ interface PodcastDao {
     @Query("SELECT EXISTS(SELECT 1 FROM bookmarked_podcasts WHERE id = :podcastId)")
     suspend fun isPodcastBookmarkedSync(podcastId: Long): Boolean
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Upsert, not REPLACE: bookmarked_podcasts is the FK parent of cached_episodes and
+    // podcast_tags (ON DELETE CASCADE). SQLite's INSERT OR REPLACE deletes the existing row
+    // first, which would cascade and wipe the podcast's episodes, playback history and tags.
+    @Upsert
     suspend fun insertBookmarkedPodcast(podcast: BookmarkedPodcast)
 
     @Delete
@@ -106,14 +110,31 @@ interface PodcastDao {
     @Query("SELECT COUNT(*) FROM cached_episodes WHERE podcastId = :podcastId")
     suspend fun getEpisodeCountForPodcast(podcastId: Long): Int
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Upsert, not REPLACE: cached_episodes is the FK parent of episode_playback_history
+    // (ON DELETE CASCADE). INSERT OR REPLACE would delete and re-create each episode on every
+    // refresh/re-download, cascading away its playback position, finished flag and history.
+    @Upsert
     suspend fun insertEpisodes(episodes: List<CachedEpisode>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Upsert
     suspend fun insertEpisode(episode: CachedEpisode)
 
     @Query("DELETE FROM cached_episodes WHERE podcastId = :podcastId")
     suspend fun deleteEpisodesForPodcast(podcastId: Long)
+
+    @Query("SELECT id FROM cached_episodes WHERE podcastId = :podcastId")
+    suspend fun getEpisodeIdsForPodcast(podcastId: Long): List<Long>
+
+    /**
+     * Counts captures taken on this podcast's cached episodes. Episode captures use the
+     * virtual audioFileId "episode_{episodeId}" and have no FK, so they survive unbookmarking.
+     */
+    @Query("""
+        SELECT COUNT(*) FROM captures c
+        INNER JOIN cached_episodes ce ON c.audioFileId = 'episode_' || ce.id
+        WHERE ce.podcastId = :podcastId
+    """)
+    suspend fun getCaptureCountForPodcast(podcastId: Long): Int
 
     // ============ Episode Playback History ============
 

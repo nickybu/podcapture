@@ -5,7 +5,9 @@ import androidx.room.Delete
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import androidx.room.Update
+import androidx.room.Upsert
 import com.podcapture.data.model.AudioFileTag
 import com.podcapture.data.model.CaptureTag
 import com.podcapture.data.model.Tag
@@ -20,7 +22,9 @@ interface TagDao {
     @Query("SELECT * FROM tags WHERE id = :tagId")
     suspend fun getTagById(tagId: String): Tag?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Upsert, not REPLACE: tags is the FK parent of audio_file_tags, capture_tags and
+    // podcast_tags (ON DELETE CASCADE); a REPLACE would strip the tag from everything.
+    @Upsert
     suspend fun insertTag(tag: Tag)
 
     @Update
@@ -55,6 +59,13 @@ interface TagDao {
     @Query("DELETE FROM audio_file_tags WHERE audioFileId = :audioFileId")
     suspend fun removeAllTagsFromAudioFile(audioFileId: String)
 
+    /** Replaces all tags on an audio file atomically. */
+    @Transaction
+    suspend fun setTagsForAudioFile(audioFileId: String, tagIds: List<String>) {
+        removeAllTagsFromAudioFile(audioFileId)
+        tagIds.forEach { tagId -> addTagToAudioFile(AudioFileTag(audioFileId, tagId)) }
+    }
+
     // Capture-Tag relationships
     @Query("""
         SELECT t.* FROM tags t
@@ -80,6 +91,13 @@ interface TagDao {
 
     @Query("DELETE FROM capture_tags WHERE captureId = :captureId")
     suspend fun removeAllTagsFromCapture(captureId: String)
+
+    /** Replaces all tags on a capture atomically. */
+    @Transaction
+    suspend fun setTagsForCapture(captureId: String, tagIds: List<String>) {
+        removeAllTagsFromCapture(captureId)
+        tagIds.forEach { tagId -> addTagToCapture(CaptureTag(captureId, tagId)) }
+    }
 
     // Filtering queries
     @Query("""

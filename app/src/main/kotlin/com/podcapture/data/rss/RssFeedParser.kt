@@ -144,7 +144,7 @@ class RssFeedParser {
                                     audioUrl = itemAudioUrl,
                                     audioType = itemAudioType,
                                     audioSize = itemAudioSize,
-                                    publishedDate = parsePubDate(itemPubDate),
+                                    publishedDate = parsePubDateSeconds(itemPubDate),
                                     duration = parseDuration(itemDuration),
                                     imageUrl = itemImageUrl,
                                     link = itemLink.ifEmpty { null }
@@ -181,25 +181,6 @@ class RssFeedParser {
         return sb.toString().trim()
     }
 
-    private fun parsePubDate(pubDate: String): Long {
-        if (pubDate.isEmpty()) return System.currentTimeMillis() / 1000
-        val formats = listOf(
-            "EEE, dd MMM yyyy HH:mm:ss zzz",
-            "EEE, dd MMM yyyy HH:mm:ss Z",
-            "EEE, dd MMM yyyy HH:mm zzz",
-            "dd MMM yyyy HH:mm:ss zzz",
-            "yyyy-MM-dd'T'HH:mm:ssXXX",
-            "yyyy-MM-dd'T'HH:mm:ss'Z'"
-        )
-        for (format in formats) {
-            try {
-                val date = SimpleDateFormat(format, Locale.ENGLISH).parse(pubDate)
-                if (date != null) return date.time / 1000
-            } catch (_: Exception) { }
-        }
-        return System.currentTimeMillis() / 1000
-    }
-
     private fun parseDuration(duration: String): Int {
         if (duration.isEmpty()) return 0
         val parts = duration.trim().split(":")
@@ -211,6 +192,42 @@ class RssFeedParser {
                  (parts[1].toIntOrNull() ?: 0)
             1 -> duration.trim().toIntOrNull() ?: 0
             else -> 0
+        }
+    }
+
+    companion object {
+        /**
+         * Published date for an episode whose feed gives no parseable pubDate. 0 is the same
+         * "unknown" value the Podcast Index path uses (`datePublished ?: 0L`): it sorts last
+         * under `ORDER BY publishedDate DESC`, stays out of the 7-day Latest Episodes window,
+         * and the episode list hides the date when it is not > 0.
+         */
+        const val UNKNOWN_PUBLISHED_DATE = 0L
+
+        private val PUB_DATE_FORMATS = listOf(
+            "EEE, dd MMM yyyy HH:mm:ss zzz",
+            "EEE, dd MMM yyyy HH:mm:ss Z",
+            "EEE, dd MMM yyyy HH:mm zzz",
+            "dd MMM yyyy HH:mm:ss zzz",
+            "yyyy-MM-dd'T'HH:mm:ssXXX",
+            "yyyy-MM-dd'T'HH:mm:ss'Z'"
+        )
+
+        /**
+         * Parses an RSS pubDate / dc:date into Unix seconds, or [UNKNOWN_PUBLISHED_DATE] if it
+         * is missing or unparseable. It used to fall back to "now", which re-stamped such
+         * episodes as published today on every refresh and floated them to the top.
+         */
+        internal fun parsePubDateSeconds(pubDate: String): Long {
+            val text = pubDate.trim()
+            if (text.isEmpty()) return UNKNOWN_PUBLISHED_DATE
+            for (format in PUB_DATE_FORMATS) {
+                try {
+                    val date = SimpleDateFormat(format, Locale.ENGLISH).parse(text)
+                    if (date != null) return date.time / 1000
+                } catch (_: Exception) { }
+            }
+            return UNKNOWN_PUBLISHED_DATE
         }
     }
 }
