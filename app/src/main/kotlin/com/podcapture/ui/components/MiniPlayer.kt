@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -56,7 +57,6 @@ fun MiniPlayer(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = 24.dp) // Bottom margin for gesture bar
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
@@ -64,7 +64,9 @@ fun MiniPlayer(
             containerColor = MaterialTheme.colorScheme.surfaceVariant
         )
     ) {
-        Column {
+        // The card extends behind the navigation bar and keeps its content above it, whether
+        // that's a gesture handle or 3-button navigation.
+        Column(modifier = Modifier.navigationBarsPadding()) {
             // Progress bar at top
             if (playbackState.durationMs > 0) {
                 LinearProgressIndicator(
