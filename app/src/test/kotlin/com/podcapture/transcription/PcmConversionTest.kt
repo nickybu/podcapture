@@ -199,7 +199,7 @@ class PcmConversionTest {
         val pcm = interleaved(44_100, 2) { i, _ -> sine(i, 44_100) }
 
         assertThat(convert(pcm, decoder.sampleRate, decoder.channelCount).size).isEqualTo(16_000)
-        // Using the container format (the old behaviour) yields 4x too many samples:
+        // Using the container format (the old behavior) yields 4x too many samples:
         // twice for the rate, twice for treating stereo frames as mono samples.
         assertThat(convert(pcm, container.sampleRate, container.channelCount).size).isEqualTo(64_000)
     }

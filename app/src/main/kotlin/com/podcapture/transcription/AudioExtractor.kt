@@ -14,7 +14,7 @@ import java.nio.ByteOrder
 class AudioExtractor(private val context: Context) {
 
     /**
-     * Mono 16 kHz audio as normalised floats ([-1, 1]), ready for the recognizer.
+     * Mono 16 kHz audio as normalized floats ([-1, 1]), ready for the recognizer.
      *
      * [samples] may be longer than the audio; only the first [sampleCount] values are valid.
      */

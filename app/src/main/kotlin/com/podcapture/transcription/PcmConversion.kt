@@ -95,7 +95,7 @@ internal object PcmWindow {
 
 /**
  * Streams interleaved PCM in, down-mixes every frame to mono and resamples to 16 kHz with linear
- * interpolation, writing normalised floats ([-1, 1]) straight into one growable output array.
+ * interpolation, writing normalized floats ([-1, 1]) straight into one growable output array.
  *
  * The output matches resampling the whole concatenated mono signal at once: output sample `i` is
  * interpolated at source position `i * inputRate / 16000`, and a segment yields

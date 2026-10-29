@@ -91,7 +91,7 @@ class WhisperModelManager(private val context: Context) {
     }
 
     /**
-     * Downloads the model if needed and initialises the recognizer. Concurrent callers (e.g. a
+     * Downloads the model if needed and initializes the recognizer. Concurrent callers (e.g. a
      * headset capture and an on-screen capture) share one in-flight attempt and its result.
      */
     suspend fun ensureModelDownloaded(): Boolean = downloadFlight.run { downloadAndInitialize() }
