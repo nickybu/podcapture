@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.podcapture.audio.AudioPlayerService
 import com.podcapture.audio.PlaybackState
+import com.podcapture.audio.PlayerState
 import com.podcapture.data.model.AudioFile
 import com.podcapture.data.model.Capture
 import com.podcapture.data.repository.AudioFileRepository
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 
 data class PlayerUiState(
     val audioFile: AudioFile? = null,
@@ -35,8 +37,51 @@ data class PlayerUiState(
     val isBookmarked: Boolean = false
 )
 
+/** Persist the playhead at most this often during playback (mirrors EpisodePlayerViewModel). */
+internal const val POSITION_SAVE_INTERVAL_MS = 3_000L
+
+/**
+ * Decides whether an observed playhead should be written to the database.
+ *
+ * - While playing: when it has moved at least [POSITION_SAVE_INTERVAL_MS] from the last
+ *   saved value in either direction, so a backward skip is persisted too.
+ * - When playback stops (pause, end, buffering): once, so a background kill right after
+ *   pausing loses nothing.
+ * - Never position 0: Media3 can emit it transiently while a new item buffers, and writing
+ *   it would erase the resume point.
+ */
+internal fun shouldSavePosition(
+    playerState: PlayerState,
+    previousPlayerState: PlayerState?,
+    positionMs: Long,
+    lastSavedPositionMs: Long
+): Boolean {
+    if (positionMs <= 0L) return false
+    return when {
+        playerState == PlayerState.PLAYING ->
+            abs(positionMs - lastSavedPositionMs) >= POSITION_SAVE_INTERVAL_MS
+        previousPlayerState == PlayerState.PLAYING -> positionMs != lastSavedPositionMs
+        else -> false
+    }
+}
+
+/**
+ * A seek requested by navigation, e.g. jumping to a capture's timestamp.
+ *
+ * The nav argument that carries it never changes, so it must be applied exactly once: as
+ * the start position of the first load, not from composition (which re-runs after
+ * returning from another screen or rotating) and not before the media is loaded.
+ */
+internal class PendingSeek(initialPositionMs: Long?) {
+    private var positionMs: Long? = initialPositionMs?.coerceAtLeast(0L)
+
+    /** Returns the requested position on the first call, then null. */
+    fun consume(): Long? = positionMs.also { positionMs = null }
+}
+
 class PlayerViewModel(
     private val audioFileId: String,
+    initialSeekToMs: Long?,
     private val audioFileRepository: AudioFileRepository,
     private val captureRepository: CaptureRepository,
     private val audioPlayerService: AudioPlayerService,
@@ -49,6 +94,17 @@ class PlayerViewModel(
 
     // Track which captures have been shown to avoid re-showing
     private val shownCaptureIds = mutableSetOf<String>()
+
+    // Position persistence. All writes go through AudioFileRepository's own scope so they
+    // complete even while this ViewModel is being cleared.
+    private var lastSavedPositionMs = 0L
+    // Latest position observed while this file was the loaded media. Fallback for the final
+    // save when the player has already switched to other media.
+    private var lastKnownPositionMs = 0L
+    private var lastObservedPlayerState: PlayerState? = null
+    private var playbackStartRecorded = false
+
+    private val pendingSeek = PendingSeek(initialSeekToMs)
 
     init {
         loadAudioFile()
@@ -70,21 +126,30 @@ class PlayerViewModel(
                     )
 
                     if (isFirstLoad) {
+                        lastSavedPositionMs = it.lastPositionMs
                         val uri = Uri.parse(it.filePath)
+                        val requestedSeekMs = pendingSeek.consume()
 
                         // Check if this audio is already loaded in the player
                         if (audioPlayerService.isLoadedUri(uri)) {
-                            // Audio already loaded - don't reload, just keep current position
-                            // The playback state will sync via observePlaybackState()
+                            // Audio already loaded - don't reload, keep the current position
+                            // unless navigation asked for a timestamp. Seeking is safe here
+                            // because the loaded media is verified to be this file.
+                            requestedSeekMs?.let { position -> audioPlayerService.seekTo(position) }
                         } else {
-                            // Load new audio into player with MIME type hint and title for notification
+                            // Start at the requested timestamp, else resume where we left off.
+                            // Passing it to loadAudio sets the playhead atomically with the
+                            // media item instead of a separate seek that the load can override.
+                            val startPositionMs = requestedSeekMs ?: it.lastPositionMs
+                            lastKnownPositionMs = startPositionMs
                             val mimeType = getMimeTypeForFormat(it.format)
-                            audioPlayerService.loadAudio(uri, audioFileId, mimeType, it.name)
-
-                            // Seek to last saved position if resuming
-                            if (it.lastPositionMs > 0) {
-                                audioPlayerService.seekTo(it.lastPositionMs)
-                            }
+                            audioPlayerService.loadAudio(
+                                uri = uri,
+                                audioFileId = audioFileId,
+                                mimeType = mimeType,
+                                title = it.name,
+                                startPositionMs = startPositionMs
+                            )
                         }
                     }
                 }
@@ -99,7 +164,38 @@ class PlayerViewModel(
 
                 // Check if playhead is within any capture's window
                 checkForActiveCapturePopup(playbackState.currentPositionMs)
+
+                persistPlaybackProgress(playbackState)
             }
+        }
+    }
+
+    private fun isThisFileLoaded(): Boolean =
+        audioPlayerService.currentAudioFileId.value == audioFileId
+
+    private fun persistPlaybackProgress(state: PlaybackState) {
+        val previousPlayerState = lastObservedPlayerState
+        lastObservedPlayerState = state.playerState
+
+        // The player is shared: ignore state that belongs to other media, otherwise we'd
+        // save another file's or episode's position under this file's id.
+        if (!isThisFileLoaded()) return
+
+        val position = state.currentPositionMs
+        if (position > 0L) {
+            lastKnownPositionMs = position
+        }
+
+        // Play history (lastPlayedAt / playCount) is written when playback actually starts,
+        // once per player visit, so History is correct even if the process is killed later.
+        if (state.playerState == PlayerState.PLAYING && !playbackStartRecorded) {
+            playbackStartRecorded = true
+            audioFileRepository.recordPlaybackStartedAsync(audioFileId)
+        }
+
+        if (shouldSavePosition(state.playerState, previousPlayerState, position, lastSavedPositionMs)) {
+            lastSavedPositionMs = position
+            audioFileRepository.updatePositionAsync(audioFileId, position)
         }
     }
 
@@ -300,19 +396,23 @@ class PlayerViewModel(
     }
 
     fun savePlaybackPosition() {
-        viewModelScope.launch {
-            val position = audioPlayerService.getCurrentPosition()
-            audioFileRepository.updatePlaybackState(audioFileId, position)
+        // Fire-and-forget on the repository's own scope: this is called from onDispose and
+        // onCleared, when viewModelScope may already be cancelled.
+        //
+        // Prefer the live position while this file is still the loaded media; otherwise the
+        // player has switched to something else, so fall back to the last position we saw.
+        val livePosition = if (isThisFileLoaded()) audioPlayerService.getCurrentPosition() else 0L
+        val position = if (livePosition > 0L) livePosition else lastKnownPositionMs
+        if (position > 0L && position != lastSavedPositionMs) {
+            lastSavedPositionMs = position
+            audioFileRepository.updatePositionAsync(audioFileId, position)
         }
     }
 
     override fun onCleared() {
         super.onCleared()
-        // Save position when leaving player
-        viewModelScope.launch {
-            val position = audioPlayerService.getCurrentPosition()
-            audioFileRepository.updatePosition(audioFileId, position)
-        }
+        // Final save. Must not use viewModelScope: it is cancelled before onCleared runs.
+        savePlaybackPosition()
     }
 
     private fun formatDuration(ms: Long): String {

@@ -42,6 +42,20 @@ interface AudioFileDao {
     """)
     suspend fun updatePlaybackState(id: String, timestamp: Long, position: Long)
 
+    /**
+     * Records that playback of a file started: bumps play history (lastPlayedAt,
+     * playCount, firstPlayedAt) without touching lastPositionMs, so a transient
+     * position reading at start-up can't overwrite the resume point.
+     */
+    @Query("""
+        UPDATE audio_files
+        SET lastPlayedAt = :timestamp,
+            playCount = playCount + 1,
+            firstPlayedAt = CASE WHEN firstPlayedAt IS NULL THEN :timestamp ELSE firstPlayedAt END
+        WHERE id = :id
+    """)
+    suspend fun recordPlay(id: String, timestamp: Long)
+
     @Query("UPDATE audio_files SET lastPositionMs = :position WHERE id = :id")
     suspend fun updatePosition(id: String, position: Long)
 

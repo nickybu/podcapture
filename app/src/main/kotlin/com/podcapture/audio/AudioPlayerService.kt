@@ -10,6 +10,7 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.podcapture.data.settings.SettingsDataStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -17,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -37,10 +39,38 @@ data class PlaybackState(
     val errorMessage: String? = null
 )
 
+/**
+ * Clamps a seek target to the playable range.
+ *
+ * Before the media is prepared, Media3 reports `C.TIME_UNSET` (a large negative value)
+ * for the duration. Clamping against it would force every seek to 0 and silently drop
+ * the resume position, so the upper bound only applies once the duration is known.
+ */
+internal fun clampSeekPosition(positionMs: Long, durationMs: Long): Long =
+    if (durationMs > 0L) {
+        positionMs.coerceIn(0L, durationMs)
+    } else {
+        positionMs.coerceAtLeast(0L)
+    }
+
+internal const val MIN_PLAYBACK_SPEED = 0.5f
+internal const val MAX_PLAYBACK_SPEED = 2.0f
+
+/** Keeps playback speed within the range the speed controls offer. */
+internal fun clampPlaybackSpeed(speed: Float): Float =
+    speed.coerceIn(MIN_PLAYBACK_SPEED, MAX_PLAYBACK_SPEED)
+
 class AudioPlayerService(
-    private val context: Context
+    private val context: Context,
+    private val settingsDataStore: SettingsDataStore
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
+
+    // The user's chosen speed: restored from settings at start-up, or set via
+    // setPlaybackSpeed. Null until either happens, so we never push a default over a
+    // saved value. Applied on connect and on every load so it survives app restarts and
+    // PlaybackService re-creation.
+    private var preferredSpeed: Float? = null
 
     private val _playbackState = MutableStateFlow(PlaybackState())
     val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -55,6 +85,7 @@ class AudioPlayerService(
     private var mediaController: MediaController? = null
 
     init {
+        restorePlaybackSpeed()
         connectToService()
     }
 
@@ -68,8 +99,25 @@ class AudioPlayerService(
         controllerFuture?.addListener({
             mediaController = controllerFuture?.get()
             mediaController?.addListener(playerListener)
+            preferredSpeed?.let { applyPlaybackSpeed(it) }
             updateState()
         }, MoreExecutors.directExecutor())
+    }
+
+    private fun restorePlaybackSpeed() {
+        scope.launch {
+            val savedSpeed = clampPlaybackSpeed(settingsDataStore.playbackSpeed.first())
+            // A speed the user picked before this read finished wins.
+            if (preferredSpeed == null) {
+                preferredSpeed = savedSpeed
+                applyPlaybackSpeed(savedSpeed)
+            }
+        }
+    }
+
+    private fun applyPlaybackSpeed(speed: Float) {
+        mediaController?.setPlaybackSpeed(speed)
+        _playbackState.value = _playbackState.value.copy(playbackSpeed = speed)
     }
 
     private val playerListener = object : Player.Listener {
@@ -178,6 +226,7 @@ class AudioPlayerService(
             } else {
                 controller.setMediaItem(mediaItem)
             }
+            preferredSpeed?.let { controller.setPlaybackSpeed(it) }
             controller.prepare()
         }
     }
@@ -205,15 +254,7 @@ class AudioPlayerService(
 
     fun seekTo(positionMs: Long) {
         mediaController?.let { controller ->
-            // Before the media is prepared, controller.duration is C.TIME_UNSET
-            // (Long.MIN_VALUE). Only clamp against duration when it's known — otherwise
-            // we'd force the seek to 0 and silently drop resume-from-history.
-            val duration = controller.duration
-            val clampedPosition = if (duration > 0L) {
-                positionMs.coerceIn(0L, duration)
-            } else {
-                positionMs.coerceAtLeast(0L)
-            }
+            val clampedPosition = clampSeekPosition(positionMs, controller.duration)
             controller.seekTo(clampedPosition)
             _playbackState.value = _playbackState.value.copy(currentPositionMs = clampedPosition)
         }
@@ -221,9 +262,9 @@ class AudioPlayerService(
 
     fun seekRelative(deltaMs: Long) {
         mediaController?.let { controller ->
-            val newPosition = (controller.currentPosition + deltaMs)
-                .coerceIn(0L, controller.duration.coerceAtLeast(0L))
-            seekTo(newPosition)
+            // seekTo() applies the duration-aware clamp; clamping here against
+            // duration.coerceAtLeast(0) turned every skip during preparation into seekTo(0).
+            seekTo(controller.currentPosition + deltaMs)
         }
     }
 
@@ -236,8 +277,12 @@ class AudioPlayerService(
     }
 
     fun setPlaybackSpeed(speed: Float) {
-        mediaController?.setPlaybackSpeed(speed)
-        _playbackState.value = _playbackState.value.copy(playbackSpeed = speed)
+        val clampedSpeed = clampPlaybackSpeed(speed)
+        preferredSpeed = clampedSpeed
+        applyPlaybackSpeed(clampedSpeed)
+        scope.launch {
+            settingsDataStore.setPlaybackSpeed(clampedSpeed)
+        }
     }
 
     fun stop() {
