@@ -48,4 +48,11 @@ class SeekClampingTest {
     fun `known duration keeps in-range positions`() {
         assertEquals(30_000L, clampSeekPosition(30_000L, 60_000L))
     }
+
+    @Test
+    fun `playback speed is clamped to the supported range`() {
+        assertEquals(0.5f, clampPlaybackSpeed(0.1f), 0f)
+        assertEquals(2.0f, clampPlaybackSpeed(3.0f), 0f)
+        assertEquals(1.25f, clampPlaybackSpeed(1.25f), 0f)
+    }
 }

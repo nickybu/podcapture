@@ -46,7 +46,7 @@ val appModule = module {
     single { PodcastRepository(androidContext(), get(), get(), get(), get()) }
 
     // Audio player
-    single { AudioPlayerService(androidContext()) }
+    single { AudioPlayerService(androidContext(), get()) }
 
     // Transcription - Whisper via Sherpa-ONNX
     single { WhisperModelManager(androidContext()) }

@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -32,6 +33,8 @@ class SettingsDataStore(private val context: Context) {
         private val HEADSET_CAPTURE_TONE_ENABLED = booleanPreferencesKey("headset_capture_tone_enabled")
         private val PODCAST_INDEX_API_KEY = stringPreferencesKey("podcast_index_api_key")
         private val PODCAST_INDEX_API_SECRET = stringPreferencesKey("podcast_index_api_secret")
+        private val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
+        const val DEFAULT_PLAYBACK_SPEED = 1.0f
         const val DEFAULT_CAPTURE_WINDOW = 30
         const val DEFAULT_CAPTURE_WINDOW_STEP = 5
         const val DEFAULT_SKIP_INTERVAL = 10
@@ -162,6 +165,17 @@ class SettingsDataStore(private val context: Context) {
     suspend fun setSkipIntervalSeconds(seconds: Int) {
         context.dataStore.edit { preferences ->
             preferences[SKIP_INTERVAL_SECONDS] = seconds
+        }
+    }
+
+    val playbackSpeed: Flow<Float> = context.dataStore.data
+        .map { preferences ->
+            preferences[PLAYBACK_SPEED] ?: DEFAULT_PLAYBACK_SPEED
+        }
+
+    suspend fun setPlaybackSpeed(speed: Float) {
+        context.dataStore.edit { preferences ->
+            preferences[PLAYBACK_SPEED] = speed
         }
     }
 
