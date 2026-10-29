@@ -30,9 +30,6 @@ coroutines = "1.9.0"
 # Serialization
 serialization = "1.7.3"
 
-# DateTime
-datetime = "0.6.1"
-
 # DI - Koin
 koin = "4.0.0"
 
@@ -71,7 +68,6 @@ androidx-navigation-compose = { group = "androidx.navigation", name = "navigatio
 
 # Media3 (ExoPlayer)
 androidx-media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
-androidx-media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 androidx-media3-session = { group = "androidx.media3", name = "media3-session", version.ref = "media3" }
 
 # Room
@@ -91,9 +87,6 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 
 # Serialization
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
-
-# DateTime
-kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "datetime" }
 
 # Koin
 koin-android = { group = "io.insert-koin", name = "koin-android", version.ref = "koin" }
@@ -132,7 +125,6 @@ compose = [
 ]
 media3 = [
     "androidx-media3-exoplayer",
-    "androidx-media3-ui",
     "androidx-media3-session",
 ]
 room = [
