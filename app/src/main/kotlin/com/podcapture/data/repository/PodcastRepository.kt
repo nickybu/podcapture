@@ -32,6 +32,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.URL
 import com.podcapture.data.rss.FeedFetcher
+import com.podcapture.util.mapConcurrently
 import org.koin.core.context.GlobalContext
 
 /**
@@ -48,6 +49,10 @@ class PodcastRepository(
 ) {
     companion object {
         private const val MAX_EPISODES = 1000
+
+        // Feeds refreshed at once by getLatestEpisodes(); enough to overlap network latency
+        // without flooding the Podcast Index API or the shared connection pool.
+        private const val MAX_PARALLEL_REFRESHES = 4
     }
 
     // Background scope for fire-and-forget writes (e.g. periodic playhead saves) that must
@@ -116,9 +121,8 @@ class PodcastRepository(
         // Refresh episodes for all bookmarked podcasts if it's a new day or forced
         if (forceRefresh || lastCacheDate != today) {
             val bookmarkedPodcasts = podcastDao.getAllBookmarkedPodcasts().first()
-            for (podcast in bookmarkedPodcasts) {
-                refreshEpisodes(podcast.id)
-            }
+            // Each refresh reports its own failure as a Result, so one bad feed never stops the rest.
+            bookmarkedPodcasts.mapConcurrently(MAX_PARALLEL_REFRESHES) { refreshEpisodes(it.id) }
             settingsDataStore.setLatestEpisodesCacheDate(today)
         }
 
@@ -209,7 +213,7 @@ class PodcastRepository(
             if (response.status == "true") {
                 val episodes = response.items.map { it.toDomain().toCachedEpisode() }
                 if (episodes.isNotEmpty()) {
-                    podcastDao.insertEpisodes(episodes) // REPLACE strategy handles duplicates
+                    podcastDao.insertEpisodes(episodes) // Already-cached episodes are updated, not duplicated
                 }
                 Result.success(Unit)
             } else {
