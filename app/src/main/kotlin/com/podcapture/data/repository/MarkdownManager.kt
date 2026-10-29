@@ -3,6 +3,8 @@ package com.podcapture.data.repository
 import android.content.Context
 import com.podcapture.data.model.AudioFile
 import com.podcapture.data.model.Capture
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
@@ -43,10 +45,12 @@ class MarkdownManager(
         return File(capturesDir, getMarkdownFileName(audioFile))
     }
 
-    fun updateMarkdownFile(audioFile: AudioFile, captures: List<Capture>) {
-        val file = getMarkdownFile(audioFile)
+    /** Rewrites the markdown file on [Dispatchers.IO], whatever dispatcher the caller is on. */
+    suspend fun updateMarkdownFile(audioFile: AudioFile, captures: List<Capture>) {
         val content = generateMarkdownContent(audioFile, captures)
-        file.writeText(content)
+        withContext(Dispatchers.IO) {
+            getMarkdownFile(audioFile).writeText(content)
+        }
     }
 
     fun getMarkdownContent(audioFile: AudioFile): String? {
@@ -54,10 +58,13 @@ class MarkdownManager(
         return if (file.exists()) file.readText() else null
     }
 
-    fun deleteMarkdownFile(audioFile: AudioFile) {
-        val file = getMarkdownFile(audioFile)
-        if (file.exists()) {
-            file.delete()
+    /** Deletes the markdown file on [Dispatchers.IO], whatever dispatcher the caller is on. */
+    suspend fun deleteMarkdownFile(audioFile: AudioFile) {
+        withContext(Dispatchers.IO) {
+            val file = getMarkdownFile(audioFile)
+            if (file.exists()) {
+                file.delete()
+            }
         }
     }
 
