@@ -7,6 +7,12 @@ import androidx.room.Query
 import com.podcapture.data.model.Capture
 import kotlinx.coroutines.flow.Flow
 
+/** One row of [CaptureDao.getCaptureCountsByFile]. */
+data class AudioFileCaptureCount(
+    val audioFileId: String,
+    val count: Int
+)
+
 @Dao
 interface CaptureDao {
 
@@ -33,6 +39,10 @@ interface CaptureDao {
 
     @Query("SELECT COUNT(*) FROM captures WHERE audioFileId = :audioFileId")
     fun getCaptureCountForFileFlow(audioFileId: String): Flow<Int>
+
+    /** Capture count for every audio file (and "episode_{id}" virtual file) that has captures. */
+    @Query("SELECT audioFileId, COUNT(*) AS count FROM captures GROUP BY audioFileId")
+    fun getCaptureCountsByFile(): Flow<List<AudioFileCaptureCount>>
 
     @Query("UPDATE captures SET notes = :notes WHERE id = :id")
     suspend fun updateNotes(id: String, notes: String?)
