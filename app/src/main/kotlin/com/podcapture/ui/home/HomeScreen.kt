@@ -11,8 +11,6 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,30 +22,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Podcasts
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -55,12 +48,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.InputChip
-import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -78,6 +68,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -192,11 +183,12 @@ fun HomeScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            if (uiState.isLoading && uiState.audioFiles.isEmpty() && uiState.bookmarkItems.isEmpty()) {
+            val hasContent = uiState.bookmarkItems.isNotEmpty() || uiState.recentItems.isNotEmpty()
+            if (uiState.isLoading && !hasContent) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center)
                 )
-            } else if (uiState.audioFiles.isEmpty() && uiState.bookmarkItems.isEmpty() && uiState.selectedTagId == null) {
+            } else if (!hasContent) {
                 EmptyState(
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -205,18 +197,6 @@ fun HomeScreen(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Tag filter chips
-                    if (uiState.allTags.isNotEmpty()) {
-                        item {
-                            TagFilterRow(
-                                tags = uiState.allTags,
-                                selectedTagId = uiState.selectedTagId,
-                                onTagSelected = viewModel::onTagFilterSelected
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-                    }
-
                     // Bookmarks section (combined podcasts + audio files)
                     if (uiState.bookmarkItems.isNotEmpty()) {
                         item {
@@ -279,9 +259,14 @@ fun HomeScreen(
                         } else {
                             when (uiState.bookmarkViewMode) {
                                 BookmarkViewMode.GRID -> {
-                                    item {
-                                        BookmarksGrid(
-                                            items = displayedBookmarks,
+                                    // One list item per row of covers, so every row is
+                                    // measured at its real height on any screen width.
+                                    items(
+                                        displayedBookmarks.chunked(BOOKMARK_GRID_COLUMNS),
+                                        key = { row -> "grid_row_${bookmarkKey(row.first())}" }
+                                    ) { row ->
+                                        BookmarkGridRow(
+                                            items = row,
                                             onPodcastClick = { viewModel.onPodcastClicked(it) },
                                             onAudioFileClick = { viewModel.onFileClicked(it) }
                                         )
@@ -323,25 +308,23 @@ fun HomeScreen(
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                            // Sort toggle: the arrow shows the current direction
+                            IconButton(
+                                onClick = { viewModel.onToggleSortOrder() },
+                                modifier = Modifier.size(32.dp)
                             ) {
-                                // Sort toggle
-                                IconButton(
-                                    onClick = { viewModel.onToggleSortOrder() },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Schedule,
-                                        contentDescription = when (uiState.recentSortOrder) {
-                                            SortOrder.NEWEST -> "Sorted newest first"
-                                            SortOrder.OLDEST -> "Sorted oldest first"
-                                        },
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                                Icon(
+                                    imageVector = when (uiState.recentSortOrder) {
+                                        SortOrder.NEWEST -> Icons.Default.ArrowDownward
+                                        SortOrder.OLDEST -> Icons.Default.ArrowUpward
+                                    },
+                                    contentDescription = when (uiState.recentSortOrder) {
+                                        SortOrder.NEWEST -> "Sorted newest first. Tap to sort oldest first"
+                                        SortOrder.OLDEST -> "Sorted oldest first. Tap to sort newest first"
+                                    },
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
                     }
@@ -386,19 +369,6 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(8.dp))
                     }
 
-                    // Sort order indicator
-                    item {
-                        Text(
-                            text = when (uiState.recentSortOrder) {
-                                SortOrder.NEWEST -> "Newest first"
-                                SortOrder.OLDEST -> "Oldest first"
-                            },
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-
                     val displayedRecent = uiState.filteredRecentItems
                     if (displayedRecent.isEmpty()) {
                         item {
@@ -419,7 +389,6 @@ fun HomeScreen(
                         items(displayedRecent, key = { it.id }) { item ->
                             RecentItemCard(
                                 item = item,
-                                showDeleteButton = uiState.recentFilterType == RecentFilterType.DOWNLOADED,
                                 onFileClick = { fileId ->
                                     viewModel.onFileClicked(fileId)
                                 },
@@ -435,28 +404,13 @@ fun HomeScreen(
                 }
             }
 
-            // Loading overlay
-            if (uiState.isLoading && uiState.audioFiles.isNotEmpty()) {
+            // Spinner while a newly picked audio file is being read
+            if (uiState.isImporting && !uiState.isLoading) {
                 CircularProgressIndicator(
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
         }
-    }
-
-    // Tag editing dialog
-    if (uiState.showTagDialog) {
-        val editingFile = uiState.audioFiles.find { it.audioFile.id == uiState.editingAudioFileId }
-        TagEditDialog(
-            allTags = uiState.allTags,
-            selectedTagIds = editingFile?.tags?.map { it.id } ?: emptyList(),
-            newTagName = uiState.newTagName,
-            onNewTagNameChanged = viewModel::onNewTagNameChanged,
-            onCreateTag = viewModel::onCreateTag,
-            onToggleTag = viewModel::onToggleTagForAudioFile,
-            onDeleteTag = viewModel::onDeleteTag,
-            onDismiss = viewModel::onCloseTagDialog
-        )
     }
 
     // Delete download confirmation dialog
@@ -495,284 +449,33 @@ private fun EmptyState(modifier: Modifier = Modifier) {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "No audio files yet",
+            text = "Nothing here yet",
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Tap + to open an audio file",
+            text = "Search for a podcast or tap + to open an audio file",
+            textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
         )
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun TagFilterRow(
-    tags: List<Tag>,
-    selectedTagId: String?,
-    onTagSelected: (String?) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        FilterChip(
-            selected = selectedTagId == null,
-            onClick = { onTagSelected(null) },
-            label = { Text("All") },
-            leadingIcon = if (selectedTagId == null) {
-                { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
-            } else null
-        )
+// Built once instead of on every call from composition. SimpleDateFormat is not thread
+// safe; these are only used from composition, which runs on the main thread.
+private val shortDateFormat = SimpleDateFormat("MMM d", Locale.getDefault())
+private val isoDateParser = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+private val compactDateParser = SimpleDateFormat("yyyyMMdd", Locale.US)
+private val monthDateParser = SimpleDateFormat("MMM d yyyy", Locale.US)
 
-        tags.forEach { tag ->
-            FilterChip(
-                selected = selectedTagId == tag.id,
-                onClick = { onTagSelected(if (selectedTagId == tag.id) null else tag.id) },
-                label = { Text(tag.name) },
-                leadingIcon = if (selectedTagId == tag.id) {
-                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                } else {
-                    { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                }
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-private fun TagEditDialog(
-    allTags: List<Tag>,
-    selectedTagIds: List<String>,
-    newTagName: String,
-    onNewTagNameChanged: (String) -> Unit,
-    onCreateTag: () -> Unit,
-    onToggleTag: (String) -> Unit,
-    onDeleteTag: (Tag) -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Edit Tags") },
-        text = {
-            Column {
-                // Existing tags
-                if (allTags.isNotEmpty()) {
-                    Text(
-                        text = "Select tags:",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        allTags.forEach { tag ->
-                            val isSelected = tag.id in selectedTagIds
-                            InputChip(
-                                selected = isSelected,
-                                onClick = { onToggleTag(tag.id) },
-                                label = { Text(tag.name) },
-                                leadingIcon = if (isSelected) {
-                                    { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(18.dp)) }
-                                } else null,
-                                trailingIcon = {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Delete tag",
-                                        modifier = Modifier
-                                            .size(18.dp)
-                                            .clickable { onDeleteTag(tag) }
-                                    )
-                                }
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
-                }
-
-                // Create new tag
-                Text(
-                    text = "Create new tag:",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = newTagName,
-                        onValueChange = onNewTagNameChanged,
-                        placeholder = { Text("Tag name") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    IconButton(
-                        onClick = onCreateTag,
-                        enabled = newTagName.isNotBlank()
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Create tag")
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Done")
-            }
-        }
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun AudioFileCard(
-    item: AudioFileWithCaptureCount,
-    onClick: () -> Unit,
-    onTagClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.AudioFile,
-                contentDescription = null,
-                modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = item.audioFile.name,
-                    style = MaterialTheme.typography.titleSmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = formatDuration(item.audioFile.durationMs),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                // Show first and last played timestamps
-                if (item.audioFile.firstPlayedAt != null || item.audioFile.lastPlayedAt != null) {
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        item.audioFile.firstPlayedAt?.let { first ->
-                            Text(
-                                text = "First: ${formatShortDate(first)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        item.audioFile.lastPlayedAt?.let { last ->
-                            Text(
-                                text = "Last: ${formatRelativeTime(last)}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-                // Show tags
-                if (item.tags.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        item.tags.forEach { tag ->
-                            Surface(
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(
-                                    text = tag.name,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-            Column(
-                horizontalAlignment = Alignment.End
-            ) {
-                // Tag button
-                IconButton(
-                    onClick = onTagClick,
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.Label,
-                        contentDescription = "Edit tags",
-                        modifier = Modifier.size(20.dp),
-                        tint = if (item.tags.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (item.captureCount > 0) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Bookmark,
-                            contentDescription = "Captures",
-                            modifier = Modifier.size(16.dp),
-                            tint = MaterialTheme.colorScheme.secondary
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = "${item.captureCount}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun formatDuration(ms: Long): String {
-    val totalSeconds = ms / 1000
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%d:%02d", minutes, seconds)
-    }
-}
+private val isoDateRegex = Regex("""(\d{4})-(\d{2})-(\d{2})""")
+private val compactDateRegex = Regex("""(\d{8})""")
+private val monthDateRegex = Regex(
+    """(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})""",
+    RegexOption.IGNORE_CASE
+)
 
 private fun formatRelativeTime(timestamp: Long): String {
     val now = System.currentTimeMillis()
@@ -783,12 +486,8 @@ private fun formatRelativeTime(timestamp: Long): String {
         diff < 3600_000 -> "${diff / 60_000}m ago"
         diff < 86400_000 -> "${diff / 3600_000}h ago"
         diff < 604800_000 -> "${diff / 86400_000}d ago"
-        else -> SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
+        else -> shortDateFormat.format(Date(timestamp))
     }
-}
-
-private fun formatShortDate(timestamp: Long): String {
-    return SimpleDateFormat("MMM d", Locale.getDefault()).format(Date(timestamp))
 }
 
 /**
@@ -798,33 +497,30 @@ private fun formatShortDate(timestamp: Long): String {
  */
 private fun extractDateFromFilename(filename: String): String {
     // Try pattern: yyyy-MM-dd (e.g., "2024-01-15_recording.mp3")
-    val isoPattern = Regex("""(\d{4})-(\d{2})-(\d{2})""")
-    isoPattern.find(filename)?.let { match ->
+    isoDateRegex.find(filename)?.let { match ->
         try {
             val (year, month, day) = match.destructured
-            val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse("$year-$month-$day")
-            return date?.let { SimpleDateFormat("MMM d", Locale.getDefault()).format(it) } ?: filename
+            val date = isoDateParser.parse("$year-$month-$day")
+            return date?.let { shortDateFormat.format(it) } ?: filename
         } catch (e: Exception) { /* continue */ }
     }
 
     // Try pattern: yyyyMMdd (e.g., "20240115_audio.mp3")
-    val compactPattern = Regex("""(\d{8})""")
-    compactPattern.find(filename)?.let { match ->
+    compactDateRegex.find(filename)?.let { match ->
         try {
             val dateStr = match.groupValues[1]
-            val date = SimpleDateFormat("yyyyMMdd", Locale.US).parse(dateStr)
-            return date?.let { SimpleDateFormat("MMM d", Locale.getDefault()).format(it) } ?: filename
+            val date = compactDateParser.parse(dateStr)
+            return date?.let { shortDateFormat.format(it) } ?: filename
         } catch (e: Exception) { /* continue */ }
     }
 
     // Try pattern: MMM d, yyyy or MMM d yyyy (e.g., "Recording Jan 15, 2024.mp3")
-    val monthPattern = Regex("""(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{1,2}),?\s+(\d{4})""", RegexOption.IGNORE_CASE)
-    monthPattern.find(filename)?.let { match ->
+    monthDateRegex.find(filename)?.let { match ->
         try {
-            val date = SimpleDateFormat("MMM d yyyy", Locale.US).parse(
+            val date = monthDateParser.parse(
                 "${match.groupValues[1]} ${match.groupValues[2]} ${match.groupValues[3]}"
             )
-            return date?.let { SimpleDateFormat("MMM d", Locale.getDefault()).format(it) } ?: filename
+            return date?.let { shortDateFormat.format(it) } ?: filename
         } catch (e: Exception) { /* continue */ }
     }
 
@@ -884,32 +580,30 @@ private fun BookmarkFilterChips(
     }
 }
 
+private const val BOOKMARK_GRID_COLUMNS = 5
+
+private fun bookmarkKey(item: BookmarkItem): String = when (item) {
+    is BookmarkItem.PodcastBookmark -> "podcast_${item.podcast.id}"
+    is BookmarkItem.AudioFileBookmark -> "file_${item.audioFile.id}"
+}
+
 /**
- * Grid view showing bookmark cover photos (5 per row).
+ * One row of the bookmark grid: up to [BOOKMARK_GRID_COLUMNS] square covers, with empty
+ * slots in a short last row so the covers keep the same width as the rows above.
  * No bookmark toggle in this view - just the artwork.
  */
 @Composable
-private fun BookmarksGrid(
+private fun BookmarkGridRow(
     items: List<BookmarkItem>,
     onPodcastClick: (Long) -> Unit,
     onAudioFileClick: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(5),
-        modifier = modifier
-            .fillMaxWidth()
-            .height((((items.size + 4) / 5) * 72).dp), // Calculate height based on rows
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        userScrollEnabled = false // Parent LazyColumn handles scrolling
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(items, key = { item ->
-            when (item) {
-                is BookmarkItem.PodcastBookmark -> "grid_podcast_${item.podcast.id}"
-                is BookmarkItem.AudioFileBookmark -> "grid_file_${item.audioFile.id}"
-            }
-        }) { item ->
+        items.forEach { item ->
             BookmarkGridItem(
                 item = item,
                 onClick = {
@@ -917,8 +611,12 @@ private fun BookmarksGrid(
                         is BookmarkItem.PodcastBookmark -> onPodcastClick(item.podcast.id)
                         is BookmarkItem.AudioFileBookmark -> onAudioFileClick(item.audioFile.id)
                     }
-                }
+                },
+                modifier = Modifier.weight(1f)
             )
+        }
+        repeat(BOOKMARK_GRID_COLUMNS - items.size) {
+            Spacer(modifier = Modifier.weight(1f))
         }
     }
 }
@@ -969,7 +667,7 @@ private fun BookmarkGridItem(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = extractDateFromFilename(item.audioFile.name),
+                            text = remember(item.audioFile.name) { extractDateFromFilename(item.audioFile.name) },
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1
@@ -1167,13 +865,13 @@ private fun RecentFilterChips(
 
 /**
  * Card for a recent item (audio file or episode).
- * Long pressing a downloaded episode opens the delete confirmation dialog.
+ * Downloaded episodes show a delete button; long pressing one also opens the delete
+ * confirmation dialog.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RecentItemCard(
     item: RecentItem,
-    showDeleteButton: Boolean = false,
     onFileClick: (String) -> Unit,
     onEpisodeClick: (Long, Long) -> Unit,
     onDeleteClick: (RecentItem.EpisodeRecent) -> Unit = {},
@@ -1312,8 +1010,8 @@ private fun RecentItemCard(
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        // Delete button (shown in Downloaded filter mode)
-                        if (showDeleteButton && item.isDownloaded) {
+                        // Delete button for any downloaded episode
+                        if (item.isDownloaded) {
                             IconButton(
                                 onClick = { onDeleteClick(item) },
                                 modifier = Modifier.size(32.dp)

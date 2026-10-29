@@ -4,6 +4,8 @@ import com.podcapture.data.db.CaptureDao
 import com.podcapture.data.model.AudioFile
 import com.podcapture.data.model.Capture
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import java.util.UUID
 
 class CaptureRepository(
@@ -15,6 +17,12 @@ class CaptureRepository(
 
     fun getCaptureCountForFile(audioFileId: String): Flow<Int> =
         captureDao.getCaptureCountForFileFlow(audioFileId)
+
+    /** Capture counts keyed by audioFileId; files without captures are absent. */
+    fun getCaptureCountsByFile(): Flow<Map<String, Int>> =
+        captureDao.getCaptureCountsByFile()
+            .map { rows -> rows.associate { it.audioFileId to it.count } }
+            .distinctUntilChanged()
 
     suspend fun getCapturesForFileOnce(audioFileId: String): List<Capture> =
         captureDao.getCapturesForFileOnce(audioFileId)
