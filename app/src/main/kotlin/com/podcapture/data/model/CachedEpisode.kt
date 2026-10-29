@@ -19,9 +19,11 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
+    // (podcastId, publishedDate) serves the per-podcast "ORDER BY publishedDate DESC" lists and
+    // MAX/MIN(publishedDate) lookups without a sort, covers the podcastId foreign key, and lets
+    // the Latest Episodes query seek each bookmarked podcast's recent range.
     indices = [
-        Index(value = ["podcastId"]),
-        Index(value = ["publishedDate"])
+        Index(value = ["podcastId", "publishedDate"])
     ]
 )
 data class CachedEpisode(

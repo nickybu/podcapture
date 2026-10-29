@@ -28,7 +28,7 @@ import com.podcapture.data.model.Tag
         EpisodePlaybackHistory::class,
         PodcastTag::class
     ],
-    version = 10,
+    version = 11,
     exportSchema = true
 )
 abstract class PodCaptureDatabase : RoomDatabase() {
@@ -248,6 +248,22 @@ abstract class PodCaptureDatabase : RoomDatabase() {
             }
         }
 
+        // Migration from version 10 to 11: index hygiene. Drop the redundant index on
+        // episode_playback_history's primary key, and replace cached_episodes' single-column
+        // podcastId and publishedDate indices with one composite (podcastId, publishedDate).
+        // Names match Room's generated index_<table>_<columns> names.
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("DROP INDEX IF EXISTS `index_episode_playback_history_episodeId`")
+                database.execSQL("DROP INDEX IF EXISTS `index_cached_episodes_podcastId`")
+                database.execSQL("DROP INDEX IF EXISTS `index_cached_episodes_publishedDate`")
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_cached_episodes_podcastId_publishedDate` " +
+                        "ON `cached_episodes` (`podcastId`, `publishedDate`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): PodCaptureDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: buildDatabase(context).also { INSTANCE = it }
@@ -260,7 +276,7 @@ abstract class PodCaptureDatabase : RoomDatabase() {
                 PodCaptureDatabase::class.java,
                 DATABASE_NAME
             )
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .build()
         }
     }

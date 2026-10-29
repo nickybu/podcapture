@@ -19,8 +19,9 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
+    // No index on episodeId: it is the primary key, which SQLite already indexes (and which
+    // also covers the foreign key).
     indices = [
-        Index(value = ["episodeId"]),
         Index(value = ["lastPlayedAt"])
     ]
 )
