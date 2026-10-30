@@ -1,5 +1,8 @@
 package com.podcapture.ui.viewer
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -19,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
@@ -29,8 +33,10 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.podcapture.ui.settings.persistVaultFolderPermission
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -41,13 +47,28 @@ fun ObsidianExportDialog(
     markdownPreview: String,
     vaultPathConfigured: Boolean,
     defaultTags: String,
+    isExporting: Boolean,
+    errorMessage: String?,
     onTitleChange: (String) -> Unit,
     onTagsInputChange: (String) -> Unit,
     onRemoveTag: (Int) -> Unit,
     onExportToVault: () -> Unit,
-    onShare: () -> Unit,
+    onVaultFolderPicked: (uri: String) -> Unit,
+    onShareAsText: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    // With no vault set, the export button picks one here instead of sending the user to
+    // Settings; the pick is saved as the Settings vault and the export continues.
+    val vaultPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        uri?.let {
+            persistVaultFolderPermission(context, it)
+            onVaultFolderPicked(it.toString())
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Export to Obsidian") },
@@ -55,6 +76,28 @@ fun ObsidianExportDialog(
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState())
             ) {
+                if (errorMessage != null) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = errorMessage,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(12.dp)
+                        )
+                    }
+                    if (vaultPathConfigured) {
+                        // The saved folder may have moved or lost its permission.
+                        TextButton(onClick = { vaultPicker.launch(null) }) {
+                            Text("Choose a Different Vault Folder")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+
                 // Title field
                 Text(
                     text = "Title",
@@ -150,16 +193,28 @@ fun ObsidianExportDialog(
             }
         },
         confirmButton = {
-            Row {
-                TextButton(onClick = onShare) {
-                    Text("Share")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Shares this note (with the title and tags above) as plain text. Unlike the
+                // toolbar Share, which sends the capture file for local audio files.
+                TextButton(onClick = onShareAsText, enabled = !isExporting) {
+                    Text("Share as Text")
                 }
                 Spacer(modifier = Modifier.width(8.dp))
-                TextButton(
-                    onClick = onExportToVault,
-                    enabled = vaultPathConfigured
-                ) {
-                    Text(if (vaultPathConfigured) "Export to Vault" else "Set Vault Path in Settings")
+                if (isExporting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .size(20.dp),
+                        strokeWidth = 2.dp
+                    )
+                } else if (vaultPathConfigured) {
+                    TextButton(onClick = onExportToVault) {
+                        Text("Export to Vault")
+                    }
+                } else {
+                    TextButton(onClick = { vaultPicker.launch(null) }) {
+                        Text("Choose Vault & Export")
+                    }
                 }
             }
         },

@@ -2,7 +2,38 @@
 
 All notable changes to PodCapture are documented in this file.
 
-## [Unreleased] - 2026-01-16
+## Unreleased
+
+### New Features
+- Settings has a Transcription section showing the speech model's state and size on disk, with Download (with progress) and Delete buttons
+- The Obsidian export dialog can choose your vault folder directly when none is set, then exports straight away
+
+### Improvements
+- Success messages in Settings and the captures viewer appear as snackbars; clean OPML imports show a one-line summary, imports with failures still list them in a dialog
+- The captures viewer header shows the episode and podcast titles instead of "Podcast Episode Captures"
+- The export dialog's Share button is now "Share as Text", to tell it apart from the toolbar Share (which sends the capture file for local audio)
+- Release APK is about half the size (R8 shrinking); unused storage permissions removed and Auto Backup rules added (#34)
+- Podcast feeds refresh in parallel and are cached; `http://` RSS feeds now work (tried over https first) (#38)
+- Home stays smooth during playback, shows History when you have no bookmarks, and the bookmark grid no longer clips rows on wide screens (#35)
+- The app asks once for notification permission on Android 13+ so download progress can be shown (#31)
+
+### Bug Fixes
+- The transcript formatting editor keeps the caret and selection while typing and after Highlight/Bold/Clear (#30)
+- Obsidian export never overwrites an existing note; a taken name becomes "Title (2).md" (#30)
+- The podcast search spinner no longer gets stuck, and OPML import failures are reported instead of silently ignored (#30)
+- Partially typed API keys and theme colors are kept locally; colors are only saved once valid (#30)
+- Queueing a download while another runs no longer starts a duplicate, and cancelling a download stops it (#31)
+- Refreshing a custom RSS podcast or re-downloading an episode no longer wipes its playback position and finished state (#32)
+- Unbookmarking a podcast offers to delete its downloaded episodes (#32)
+- Local audio files save their playhead position and play history again (#33)
+- Returning to the player no longer re-applies a capture's seek, skipping while loading no longer jumps to 0, and playback speed persists across restarts (#33)
+- The podcast detail screen keeps episodes' finished marks and no longer scans storage on every download progress tick (#36)
+- The mini player and snackbars respect system insets, and tapping the mini player no longer stacks duplicate players (#36)
+- Captures from HE-AAC and parametric-stereo episodes are trimmed and transcribed at the right sample rate (#37)
+- Failed transcriptions and captures from a player that is not ready are reported instead of being saved as captures (#37)
+- Two captures at once share one speech model download instead of corrupting it (#37)
+
+## 2026-01-16
 
 ### New Features
 
@@ -36,7 +67,7 @@ All notable changes to PodCapture are documented in this file.
 
 #### Configurable Skip Interval
 - New setting to customize rewind/fast-forward interval
-- Choose from 5, 10, 15, 20, 25, or 30 seconds
+- Choose from 5 to 60 seconds in 5-second steps
 - Skip buttons now display the current interval (e.g., "15s" instead of hardcoded "10s")
 - Located in Settings under "Playback" section
 

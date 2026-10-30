@@ -2,7 +2,6 @@ package com.podcapture.ui.viewer
 
 import android.content.Intent
 import android.net.Uri
-import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -46,6 +45,8 @@ import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,6 +55,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -86,6 +88,11 @@ fun ViewerScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val listState = rememberLazyListState()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
+    }
 
     // Scroll to the specified capture when it becomes available
     LaunchedEffect(scrollToCaptureId, uiState.captures) {
@@ -158,12 +165,13 @@ fun ViewerScreen(
                                 }
                             }
                         ) {
-                            Icon(Icons.Default.Share, contentDescription = "Share")
+                            Icon(Icons.Default.Share, contentDescription = "Share captures")
                         }
                     }
                 }
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { paddingValues ->
         if (uiState.isLoading) {
@@ -199,17 +207,24 @@ fun ViewerScreen(
             ) {
                 // Header with file info
                 item {
-                    val audioFile = uiState.audioFile
-                    val title = audioFile?.name ?: if (audioFileId.startsWith("episode_")) {
-                        "Podcast Episode Captures"
-                    } else {
-                        "Captures"
-                    }
+                    val isEpisode = audioFileId.startsWith("episode_")
+                    val title = uiState.audioFile?.name
+                        ?: uiState.episodeTitle
+                        ?: if (isEpisode) "Podcast episode" else "Captures"
                     Text(
                         text = title,
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.primary
                     )
+                    uiState.podcastTitle?.let { podcastTitle ->
+                        Text(
+                            text = podcastTitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                     Text(
                         text = "${uiState.captures.size} capture(s)",
                         style = MaterialTheme.typography.bodySmall,
@@ -318,11 +333,14 @@ fun ViewerScreen(
                 markdownPreview = uiState.obsidianPreview,
                 vaultPathConfigured = uiState.obsidianVaultUri.isNotBlank(),
                 defaultTags = uiState.obsidianDefaultTags,
+                isExporting = uiState.isExportingToObsidian,
+                errorMessage = uiState.obsidianExportError,
                 onTitleChange = viewModel::onObsidianTitleChanged,
                 onTagsInputChange = viewModel::onObsidianTagsInputChanged,
                 onRemoveTag = viewModel::onRemoveObsidianTag,
                 onExportToVault = { viewModel.exportToObsidianVault() },
-                onShare = {
+                onVaultFolderPicked = viewModel::onVaultFolderSelected,
+                onShareAsText = {
                     // Share the Obsidian-formatted content
                     val content = viewModel.getObsidianContent()
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
@@ -334,21 +352,6 @@ fun ViewerScreen(
                 },
                 onDismiss = viewModel::onCloseObsidianDialog
             )
-        }
-
-        // Handle export result
-        LaunchedEffect(uiState.obsidianExportResult) {
-            when (val result = uiState.obsidianExportResult) {
-                is ObsidianExportResult.Success -> {
-                    Toast.makeText(context, "Exported to: ${result.filePath}", Toast.LENGTH_LONG).show()
-                    viewModel.clearExportResult()
-                }
-                is ObsidianExportResult.Error -> {
-                    Toast.makeText(context, "Export failed: ${result.message}", Toast.LENGTH_LONG).show()
-                    viewModel.clearExportResult()
-                }
-                null -> {}
-            }
         }
     }
 }

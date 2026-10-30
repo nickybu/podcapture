@@ -35,7 +35,7 @@ Customise the app's colour scheme in settings. Set your own hex colours for the 
 ## Requirements
 
 - Android 9.0 (API 28) or higher
-- ~40MB for the Whisper speech recognition model (downloaded on first use)
+- ~104 MB for the Whisper speech recognition model (downloaded on first capture, or from Settings > Transcription, where it can also be deleted)
 
 ## Building
 

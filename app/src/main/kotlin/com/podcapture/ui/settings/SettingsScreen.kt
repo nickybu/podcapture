@@ -1,7 +1,9 @@
 package com.podcapture.ui.settings
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -32,8 +34,10 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,6 +49,8 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -54,6 +60,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -66,6 +73,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.podcapture.transcription.ModelState
 import com.podcapture.ui.theme.isValidHexColor
 import com.podcapture.ui.theme.parseHexColor
 import org.koin.androidx.compose.koinViewModel
@@ -79,17 +87,19 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    var showDeleteModelDialog by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(viewModel) {
+        viewModel.messages.collect { snackbarHostState.showSnackbar(it) }
+    }
 
     // Folder picker launcher
     val folderPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri: Uri? ->
         uri?.let {
-            // Take persistable permission so we can access this folder later
-            context.contentResolver.takePersistableUriPermission(
-                it,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            )
+            persistVaultFolderPermission(context, it)
             viewModel.setObsidianVaultUri(it.toString())
         }
     }
@@ -196,20 +206,42 @@ fun SettingsScreen(
         )
     }
 
-    // Export result dialog
-    uiState.exportResult?.let { result ->
+    // Export failure dialog (a successful export is reported in the snackbar)
+    uiState.exportError?.let { message ->
         AlertDialog(
-            onDismissRequest = { viewModel.clearExportResult() },
-            title = { Text(if (result is ExportResult.Success) "Export Complete" else "Export Failed") },
-            text = {
-                when (result) {
-                    is ExportResult.Success -> Text("Exported ${result.count} podcasts to OPML file")
-                    is ExportResult.Error -> Text(result.message)
+            onDismissRequest = { viewModel.clearExportError() },
+            title = { Text("Export Failed") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { viewModel.clearExportError() }) {
+                    Text("OK")
                 }
+            }
+        )
+    }
+
+    if (showDeleteModelDialog) {
+        val freed = uiState.transcriptionModel.sizeOnDiskBytes?.let(::formatMegabytes) ?: "the space it uses"
+        AlertDialog(
+            onDismissRequest = { showDeleteModelDialog = false },
+            title = { Text("Delete Speech Model?") },
+            text = {
+                Text(
+                    "This frees $freed. Captures can't be transcribed until the model is " +
+                        "downloaded again, which happens automatically on your next capture."
+                )
             },
             confirmButton = {
-                TextButton(onClick = { viewModel.clearExportResult() }) {
-                    Text("OK")
+                TextButton(onClick = {
+                    showDeleteModelDialog = false
+                    viewModel.deleteModel()
+                }) {
+                    Text("Delete", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteModelDialog = false }) {
+                    Text("Cancel")
                 }
             }
         )
@@ -226,6 +258,7 @@ fun SettingsScreen(
                 }
             )
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         modifier = modifier
     ) { paddingValues ->
         Column(
@@ -354,6 +387,33 @@ fun SettingsScreen(
                         checked = uiState.headsetCaptureToneEnabled,
                         enabled = uiState.headsetCaptureEnabled,
                         onCheckedChange = { viewModel.setHeadsetCaptureToneEnabled(it) }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Transcription section
+            Text(
+                text = "Transcription",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                ) {
+                    TranscriptionModelSection(
+                        model = uiState.transcriptionModel,
+                        onDownload = { viewModel.downloadModel() },
+                        onDelete = { showDeleteModelDialog = true }
                     )
                 }
             }
@@ -672,6 +732,101 @@ fun SettingsScreen(
         }
     }
 }
+
+@Composable
+private fun TranscriptionModelSection(
+    model: TranscriptionModelUiState,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit
+) {
+    val downloadSize = formatMegabytes(model.downloadSizeBytes)
+
+    Text(
+        text = "Speech Model",
+        style = MaterialTheme.typography.titleSmall
+    )
+    Text(
+        text = "${model.name}. Runs on your device; audio never leaves your phone.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    when (val state = model.state) {
+        is ModelState.NotDownloaded -> {
+            Text(
+                text = "Not downloaded. It downloads automatically ($downloadSize) on your first " +
+                    "capture, or you can download it now.",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Download ($downloadSize)")
+            }
+        }
+        is ModelState.Downloading -> {
+            Text(
+                text = "Downloading\u2026 ${state.progress}%",
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = { state.progress / 100f },
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "You can leave this screen; the download continues.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        is ModelState.Ready -> {
+            Text(
+                text = "Ready" + (model.sizeOnDiskBytes?.let { " \u00b7 ${formatMegabytes(it)} on disk" } ?: ""),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            OutlinedButton(
+                onClick = onDelete,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Icon(Icons.Outlined.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Delete Model")
+            }
+        }
+        is ModelState.Error -> {
+            Text(
+                text = "Download failed: ${state.message}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Retry Download ($downloadSize)")
+            }
+        }
+    }
+}
+
+/**
+ * Keeps access to a folder picked with OpenDocumentTree across restarts. Returns false if the
+ * provider refused; the URI still works until the app process ends, so callers carry on.
+ */
+internal fun persistVaultFolderPermission(context: Context, uri: Uri): Boolean =
+    runCatching {
+        context.contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        )
+    }.onFailure { Log.w("VaultFolder", "Could not persist access to $uri", it) }.isSuccess
 
 @Composable
 private fun PodcastIndexCredentialsSection(
