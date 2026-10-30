@@ -1,10 +1,9 @@
 package com.podcapture.data.db
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
+import androidx.room.Upsert
 import com.podcapture.data.model.AudioFile
 import kotlinx.coroutines.flow.Flow
 
@@ -26,7 +25,9 @@ interface AudioFileDao {
     @Query("SELECT * FROM audio_files WHERE filePath = :filePath")
     suspend fun getFileByPath(filePath: String): AudioFile?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    // Upsert, not REPLACE: audio_files is the FK parent of audio_file_tags (ON DELETE
+    // CASCADE); a REPLACE on an existing id would silently drop the file's tags.
+    @Upsert
     suspend fun insertFile(audioFile: AudioFile)
 
     @Update

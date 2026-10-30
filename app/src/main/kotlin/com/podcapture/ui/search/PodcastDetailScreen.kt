@@ -75,6 +75,7 @@ import com.podcapture.data.model.CachedEpisode
 import com.podcapture.data.model.EpisodeDownloadState
 import com.podcapture.data.model.Podcast
 import com.podcapture.data.model.Tag
+import com.podcapture.ui.components.UnbookmarkPodcastDialog
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -90,6 +91,7 @@ fun PodcastDetailScreen(
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    var showUnbookmarkDialog by remember { mutableStateOf(false) }
 
     // Refresh download states when screen becomes visible
     LaunchedEffect(Unit) {
@@ -133,7 +135,11 @@ fun PodcastDetailScreen(
 
                     // Bookmark button
                     IconButton(
-                        onClick = viewModel::onToggleBookmark,
+                        onClick = {
+                            // Removing a bookmark deletes downloads, so confirm it first.
+                            if (uiState.isBookmarked) showUnbookmarkDialog = true
+                            else viewModel.onToggleBookmark()
+                        },
                         enabled = !uiState.isBookmarkLoading
                     ) {
                         if (uiState.isBookmarkLoading) {
@@ -275,6 +281,19 @@ fun PodcastDetailScreen(
             onCreateTag = viewModel::onCreateTag,
             onToggleTag = viewModel::onToggleTag,
             onDismiss = viewModel::onCloseTagDialog
+        )
+    }
+
+    // Unbookmark confirmation dialog
+    if (showUnbookmarkDialog) {
+        UnbookmarkPodcastDialog(
+            podcastId = podcastId,
+            podcastTitle = uiState.podcast?.title ?: "this podcast",
+            onConfirm = {
+                showUnbookmarkDialog = false
+                if (uiState.isBookmarked) viewModel.onToggleBookmark()
+            },
+            onDismiss = { showUnbookmarkDialog = false }
         )
     }
 }

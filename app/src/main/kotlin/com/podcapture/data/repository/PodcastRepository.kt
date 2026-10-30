@@ -90,12 +90,72 @@ class PodcastRepository(
         }
     }
 
+    /**
+     * What unbookmarking a podcast will remove or orphan, for the confirmation dialog.
+     *
+     * @property downloadedEpisodes episodes with an audio file on disk; these are deleted.
+     * @property captures captures taken on the podcast's episodes; these are kept, but once
+     *   the episodes' playback history is gone they are no longer reachable from Home.
+     */
+    data class UnbookmarkImpact(
+        val downloadedEpisodes: Int,
+        val captures: Int
+    )
+
+    suspend fun getUnbookmarkImpact(podcastId: Long): UnbookmarkImpact = withContext(Dispatchers.IO) {
+        val episodeIds = podcastDao.getEpisodeIdsForPodcast(podcastId)
+        UnbookmarkImpact(
+            downloadedEpisodes = downloadedEpisodeIds(episodeIds).size,
+            captures = podcastDao.getCaptureCountForPodcast(podcastId)
+        )
+    }
+
+    /**
+     * Removes a podcast bookmark.
+     *
+     * Deleting the bookmark cascades to cached_episodes and episode_playback_history, so the
+     * podcast's downloaded audio files and their `episode_{id}` audio_files rows are deleted
+     * first; otherwise they would stay on disk with nothing in the app pointing at them.
+     * Captures are deliberately kept (they have no FK): they hold the user's transcriptions
+     * and notes, and they show up again if the podcast is re-bookmarked and the episode opened.
+     */
     suspend fun unbookmarkPodcast(podcastId: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
+            val episodeIds = podcastDao.getEpisodeIdsForPodcast(podcastId)
+            for (episodeId in downloadedEpisodeIds(episodeIds)) {
+                deleteDownloadedEpisode(episodeId)
+            }
             podcastDao.deleteBookmarkedPodcastById(podcastId)
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        }
+    }
+
+    /**
+     * Returns the subset of [episodeIds] that have a downloaded file in filesDir/episodes.
+     * Lists the directory once instead of probing each episode, since a podcast can have
+     * up to [MAX_EPISODES] cached episodes.
+     */
+    private fun downloadedEpisodeIds(episodeIds: List<Long>): List<Long> {
+        val onDisk = DownloadedEpisodeFiles.idsInDir(File(context.filesDir, "episodes"))
+        return episodeIds.filter { it in onDisk }
+    }
+
+    internal object DownloadedEpisodeFiles {
+        private val FILE_NAME = Regex("""episode_(-?\d+)\.(mp3|m4a|aac|ogg)""")
+
+        /**
+         * Episode IDs that have a non-empty downloaded file in [episodesDir], matching the
+         * `episode_{id}.{ext}` names written by [downloadEpisode] and probed by
+         * [getLocalEpisodePath]. In-progress `.tmp` files are ignored.
+         */
+        fun idsInDir(episodesDir: File): Set<Long> {
+            val files = episodesDir.listFiles() ?: return emptySet()
+            return files.asSequence()
+                .filter { it.isFile && it.length() > 0 }
+                .mapNotNull { FILE_NAME.matchEntire(it.name)?.groupValues?.get(1)?.toLongOrNull() }
+                .toSet()
         }
     }
 

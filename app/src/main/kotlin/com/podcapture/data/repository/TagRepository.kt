@@ -47,10 +47,7 @@ class TagRepository(private val tagDao: TagDao) {
     }
 
     suspend fun setAudioFileTags(audioFileId: String, tagIds: List<String>) {
-        tagDao.removeAllTagsFromAudioFile(audioFileId)
-        tagIds.forEach { tagId ->
-            tagDao.addTagToAudioFile(AudioFileTag(audioFileId, tagId))
-        }
+        tagDao.setTagsForAudioFile(audioFileId, tagIds)
     }
 
     // Capture tag operations
@@ -71,10 +68,7 @@ class TagRepository(private val tagDao: TagDao) {
     }
 
     suspend fun setCaptureTags(captureId: String, tagIds: List<String>) {
-        tagDao.removeAllTagsFromCapture(captureId)
-        tagIds.forEach { tagId ->
-            tagDao.addTagToCapture(CaptureTag(captureId, tagId))
-        }
+        tagDao.setTagsForCapture(captureId, tagIds)
     }
 
     // Filtering
