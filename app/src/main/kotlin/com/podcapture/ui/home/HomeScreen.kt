@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -91,6 +92,7 @@ fun HomeScreen(
     onNavigateToPodcastSearch: () -> Unit = {},
     onNavigateToPodcastDetail: (podcastId: Long) -> Unit = {},
     onNavigateToEpisodePlayer: (episodeId: Long, podcastId: Long) -> Unit = { _, _ -> },
+    onNavigateToCaptures: () -> Unit = {},
     modifier: Modifier = Modifier,
     viewModel: HomeViewModel = koinViewModel()
 ) {
@@ -149,6 +151,9 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("PodCapture") },
                 actions = {
+                    IconButton(onClick = onNavigateToCaptures) {
+                        Icon(Icons.AutoMirrored.Filled.Notes, contentDescription = "Captures")
+                    }
                     IconButton(onClick = onNavigateToPodcastSearch) {
                         Icon(Icons.Default.Podcasts, contentDescription = "Search Podcasts")
                     }

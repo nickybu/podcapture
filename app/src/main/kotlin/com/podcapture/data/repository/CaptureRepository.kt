@@ -1,6 +1,8 @@
 package com.podcapture.data.repository
 
 import com.podcapture.data.db.CaptureDao
+import com.podcapture.data.db.CaptureSourceRow
+import com.podcapture.data.db.CaptureTagRow
 import com.podcapture.data.model.AudioFile
 import com.podcapture.data.model.Capture
 import kotlinx.coroutines.flow.Flow
@@ -144,4 +146,21 @@ class CaptureRepository(
     suspend fun updateFormattedTranscriptionSimple(captureId: String, formattedTranscription: String?) {
         captureDao.updateFormattedTranscription(captureId, formattedTranscription)
     }
+
+    // ============ Global Captures screen ============
+
+    /** All captures, newest first. */
+    fun getAllCapturesNewestFirst(): Flow<List<Capture>> =
+        captureDao.getAllCapturesNewestFirst()
+
+    /** All capture-tag pairs, tag names ascending. */
+    fun getAllCaptureTags(): Flow<List<CaptureTagRow>> =
+        captureDao.getAllCaptureTags().distinctUntilChanged()
+
+    /**
+     * Source rows for every audioFileId that has captures. The query also observes
+     * cached_episodes, so distinctUntilChanged drops re-emissions from unrelated feed refreshes.
+     */
+    fun getCaptureSources(): Flow<List<CaptureSourceRow>> =
+        captureDao.getCaptureSources().distinctUntilChanged()
 }
