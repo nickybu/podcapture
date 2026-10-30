@@ -42,8 +42,16 @@ class WhisperModelManager(private val context: Context) {
         private const val DECODER_FILE = "tiny.en-decoder.int8.onnx"
         private const val TOKENS_FILE = "tiny.en-tokens.txt"
 
-        // Approximate total size of all model files (~120MB for int8 versions)
-        private const val TOTAL_MODEL_SIZE = 120_000_000L
+        // Sizes of the model files on Hugging Face, used for download progress.
+        private const val ENCODER_SIZE = 12_937_772L
+        private const val DECODER_SIZE = 89_853_865L
+        private const val TOKENS_SIZE = 835_554L
+
+        /** Total download size of the model files (~104 MB). */
+        const val MODEL_DOWNLOAD_SIZE_BYTES = ENCODER_SIZE + DECODER_SIZE + TOKENS_SIZE
+
+        /** Human-readable model name for settings. */
+        const val MODEL_DISPLAY_NAME = "Whisper tiny.en (int8)"
     }
 
     private val modelDir = File(context.filesDir, MODEL_NAME)
@@ -53,6 +61,10 @@ class WhisperModelManager(private val context: Context) {
     // Owns the model download so it outlives (and is shared between) the callers awaiting it.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val downloadFlight = SingleFlight<Boolean>(scope)
+
+    // Serializes downloading and deleting the model files, so a delete never removes files a
+    // download is still writing (it waits for the download to finish instead).
+    private val modelFilesMutex = Mutex()
 
     // Cached result of the model-file check so isModelReady() is cheap on the main thread.
     // null = not checked yet. Updated after every download attempt.
@@ -94,7 +106,35 @@ class WhisperModelManager(private val context: Context) {
      * Downloads the model if needed and initializes the recognizer. Concurrent callers (e.g. a
      * headset capture and an on-screen capture) share one in-flight attempt and its result.
      */
-    suspend fun ensureModelDownloaded(): Boolean = downloadFlight.run { downloadAndInitialize() }
+    suspend fun ensureModelDownloaded(): Boolean = downloadFlight.run {
+        modelFilesMutex.withLock { downloadAndInitialize() }
+    }
+
+    /**
+     * Deletes the downloaded model files and drops the recognizer, so the model is downloaded
+     * again on the next capture (or from Settings). Waits for an in-flight download to finish
+     * first. Returns whether the model directory is gone afterwards.
+     */
+    suspend fun deleteModel(): Boolean = withContext(Dispatchers.IO) {
+        modelFilesMutex.withLock {
+            recognizerMutex.withLock {
+                // Drop the reference rather than calling release(): a capture may still be
+                // decoding with this instance (WhisperTranscriptionService uses it outside the
+                // mutex), and releasing it there would free native memory mid-decode.
+                // OfflineRecognizer frees its native side in finalize() once unreachable.
+                recognizer = null
+            }
+            val deleted = modelDir.deleteRecursively()
+            modelReadyCache.set(false)
+            _modelState.value = ModelState.NotDownloaded
+            Log.d(TAG, "Model deleted (success=$deleted)")
+            deleted
+        }
+    }
+
+    /** Bytes the model files currently take on disk. Reads the disk; call off the main thread. */
+    fun modelSizeOnDiskBytes(): Long =
+        modelDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
 
     private suspend fun downloadAndInitialize(): Boolean {
         // Runs on Dispatchers.IO via [scope]; checks the disk rather than the cache.
@@ -183,9 +223,9 @@ class WhisperModelManager(private val context: Context) {
         }
 
         val files = listOf(
-            ENCODER_FILE to 12_000_000L,   // ~12MB
-            DECODER_FILE to 105_000_000L,  // ~105MB
-            TOKENS_FILE to 100_000L        // ~100KB
+            ENCODER_FILE to ENCODER_SIZE,
+            DECODER_FILE to DECODER_SIZE,
+            TOKENS_FILE to TOKENS_SIZE
         )
 
         var totalDownloaded = 0L
@@ -201,7 +241,7 @@ class WhisperModelManager(private val context: Context) {
             // Hugging Face URL format: BASE_URL + filename
             val url = "$BASE_URL$fileName"
             downloadFile(url, targetFile) { bytesDownloaded ->
-                val progress = ((totalDownloaded + bytesDownloaded) * 100 / TOTAL_MODEL_SIZE)
+                val progress = ((totalDownloaded + bytesDownloaded) * 100 / MODEL_DOWNLOAD_SIZE_BYTES)
                     .toInt().coerceIn(0, 99)
                 _modelState.value = ModelState.Downloading(progress)
             }
