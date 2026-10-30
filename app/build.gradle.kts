@@ -76,7 +76,8 @@ android {
             ndk {
                 abiFilters += listOf("arm64-v8a", "armeabi-v7a")
             }
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -138,9 +139,6 @@ dependencies {
 
     // Serialization
     implementation(libs.kotlinx.serialization.json)
-
-    // DateTime
-    implementation(libs.kotlinx.datetime)
 
     // Koin DI
     implementation(libs.bundles.koin)
