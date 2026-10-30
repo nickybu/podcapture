@@ -2,21 +2,34 @@ package com.podcapture.audio
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Bundle
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionError
+import androidx.media3.session.SessionResult
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import com.podcapture.MainActivity
+import com.podcapture.R
 import com.podcapture.capture.CaptureManager
 import com.podcapture.data.settings.SettingsDataStore
 import org.koin.android.ext.android.inject
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
+
+    private companion object {
+        const val ACTION_CAPTURE = "com.podcapture.session.CAPTURE"
+        val CAPTURE_COMMAND = SessionCommand(ACTION_CAPTURE, Bundle.EMPTY)
+    }
 
     private var mediaSession: MediaSession? = null
     private var exoPlayer: ExoPlayer? = null
@@ -62,8 +75,16 @@ class PlaybackService : MediaSessionService() {
         player.addListener(warmUpListener)
         exoPlayer = player
 
-        // Create pending intent for the notification tap action
+        // Notification tap: bring the existing activity forward (SINGLE_TOP + CLEAR_TOP
+        // deliver this to onNewIntent rather than stacking a second MainActivity) and ask it
+        // to open the player for what's playing.
         val intent = Intent(this, MainActivity::class.java)
+            .putExtra(MainActivity.EXTRA_OPEN_NOW_PLAYING, true)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
+            )
         val pendingIntent = PendingIntent.getActivity(
             this,
             0,
@@ -71,13 +92,55 @@ class PlaybackService : MediaSessionService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // A Capture button in the media notification (and lock screen / system media
+        // controls). SLOT_FORWARD puts it where "next" would be: PodCapture plays a single
+        // item, so the player never offers "next" and the slot is free.
+        val captureButton = CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+            .setCustomIconResId(R.drawable.ic_notification_capture)
+            .setDisplayName("Capture")
+            .setSessionCommand(CAPTURE_COMMAND)
+            .setSlots(CommandButton.SLOT_FORWARD, CommandButton.SLOT_OVERFLOW)
+            .build()
+
         mediaSession = MediaSession.Builder(this, player)
             .setSessionActivity(pendingIntent)
+            .setMediaButtonPreferences(listOf(captureButton))
             .setCallback(object : MediaSession.Callback {
+                // Every controller may send CAPTURE: the notification and the system media
+                // controls (the platform session) are the ones that show the button.
+                override fun onConnect(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo
+                ): MediaSession.ConnectionResult {
+                    val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS
+                        .buildUpon()
+                        .add(CAPTURE_COMMAND)
+                        .build()
+                    return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
+                        .setAvailableSessionCommands(sessionCommands)
+                        .build()
+                }
+
+                override fun onCustomCommand(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo,
+                    customCommand: SessionCommand,
+                    args: Bundle
+                ): ListenableFuture<SessionResult> {
+                    if (customCommand.customAction != ACTION_CAPTURE) {
+                        return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+                    }
+                    // Same path and cues as the headset gesture; plays the failure cue when
+                    // nothing is loaded or a capture is already running.
+                    captureHandler().captureFromNotification()
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
+
                 // Media button events from headsets arrive here before Media3's default
                 // handling, so a double press/tap ("next track") can be turned into a capture.
                 // The caller isn't checked: Media3 attributes some headset events to the
-                // notification controller, and the notification has no "next" button anyway.
+                // notification controller, and the notification has no "next" button anyway
+                // (its Capture button is a custom command and arrives in onCustomCommand).
                 override fun onMediaButtonEvent(
                     session: MediaSession,
                     controllerInfo: MediaSession.ControllerInfo,

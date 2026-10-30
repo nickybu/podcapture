@@ -2,6 +2,7 @@ package com.podcapture
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -17,6 +18,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import com.podcapture.data.settings.SettingsDataStore
+import com.podcapture.ui.navigation.DeepLinkEvents
 import com.podcapture.ui.navigation.PodCaptureNavHost
 import com.podcapture.ui.theme.PodCaptureTheme
 import com.podcapture.ui.theme.ThemeColors
@@ -40,6 +42,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         requestNotificationPermissionOnce()
+        // On re-creation (rotation, process restore) the launch intent is delivered again,
+        // but the request was already handled the first time.
+        if (savedInstanceState == null) handleOpenNowPlaying(intent)
 
         val themeColorsFlow = themeColorsFlow()
         // Read once, synchronously, so the first frame already has the user's palette
@@ -61,6 +66,20 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOpenNowPlaying(intent)
+    }
+
+    /** The media notification's tap intent asks for the player of whatever is loaded. */
+    private fun handleOpenNowPlaying(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false) != true) return
+        // Consumed, so a later re-creation from this intent doesn't navigate again.
+        intent.removeExtra(EXTRA_OPEN_NOW_PLAYING)
+        DeepLinkEvents.request(DeepLinkEvents.DeepLink.OpenNowPlaying)
     }
 
     private fun themeColorsFlow(): Flow<ThemeColors> =
@@ -95,8 +114,11 @@ class MainActivity : ComponentActivity() {
         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    private companion object {
-        const val PERMISSION_PREFS = "permission_prompts"
-        const val KEY_ASKED_NOTIFICATIONS = "asked_post_notifications"
+    companion object {
+        /** Boolean extra on the media session's activity intent: open the current player. */
+        const val EXTRA_OPEN_NOW_PLAYING = "com.podcapture.extra.OPEN_NOW_PLAYING"
+
+        private const val PERMISSION_PREFS = "permission_prompts"
+        private const val KEY_ASKED_NOTIFICATIONS = "asked_post_notifications"
     }
 }
