@@ -33,6 +33,10 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.net.URL
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /**
  * Repository for managing bookmarked podcasts, cached episodes, and playback history.
@@ -558,6 +562,7 @@ class PodcastRepository(
 
             // Create AudioFile entry for captures to work
             ensureAudioFileEntry(audioFileId, episode, targetFile)
+            _downloadedEpisodeIds.update { it + episode.id }
 
             Result.success(targetFile.absolutePath)
         } catch (e: CancellationException) {
@@ -597,9 +602,56 @@ class PodcastRepository(
         }
     }
 
+    // ============ Downloaded Episode Index ============
+
+    private val _downloadedEpisodeIds = MutableStateFlow<Set<Long>>(emptySet())
+
     /**
-     * Checks if an episode is downloaded locally.
-     * First checks the file system directly, then falls back to playback history.
+     * IDs of episodes with a downloaded audio file in filesDir/episodes.
+     *
+     * Built from a single directory listing (off the main thread) and kept current by
+     * [downloadEpisode] and [deleteDownloadedEpisode], so list screens can check download
+     * state with a set lookup instead of probing the file system per episode.
+     */
+    val downloadedEpisodeIds: StateFlow<Set<Long>> = _downloadedEpisodeIds.asStateFlow()
+
+    init {
+        backgroundScope.launch { refreshDownloadedIds() }
+    }
+
+    /**
+     * Re-lists filesDir/episodes to pick up changes made outside [downloadEpisode] and
+     * [deleteDownloadedEpisode]. One directory listing, on the IO dispatcher.
+     */
+    suspend fun refreshDownloadedIds() {
+        val ids = withContext(Dispatchers.IO) {
+            EpisodeFileIndex.idsInDir(File(context.filesDir, "episodes"))
+        }
+        _downloadedEpisodeIds.value = ids
+    }
+
+    internal object EpisodeFileIndex {
+        private val FILE_NAME = Regex("""episode_(-?\d+)\.(mp3|m4a|aac|ogg)""")
+
+        /**
+         * Episode IDs with a non-empty `episode_{id}.{ext}` file in [episodesDir], the names
+         * written by [downloadEpisode] and probed by [getLocalEpisodePath]. In-progress `.tmp`
+         * files are ignored.
+         */
+        fun idsInDir(episodesDir: File): Set<Long> {
+            val files = episodesDir.listFiles() ?: return emptySet()
+            return files.asSequence()
+                .filter { it.isFile && it.length() > 0 }
+                .mapNotNull { FILE_NAME.matchEntire(it.name)?.groupValues?.get(1)?.toLongOrNull() }
+                .toSet()
+        }
+    }
+
+    /**
+     * Checks if an episode is downloaded locally by probing the file system.
+     *
+     * Blocking (up to four stat calls); callers on the main thread that only need a yes/no
+     * should use [downloadedEpisodeIds] instead.
      */
     fun getLocalEpisodePath(episodeId: Long): String? {
         val episodesDir = File(context.filesDir, "episodes")
@@ -632,6 +684,7 @@ class PodcastRepository(
         localPath?.let { path ->
             File(path).delete()
         }
+        _downloadedEpisodeIds.update { it - episodeId }
 
         // Clear localFilePath from history but keep the history record
         val history = podcastDao.getPlaybackHistoryForEpisode(episodeId)
