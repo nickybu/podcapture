@@ -27,6 +27,9 @@ import kotlinx.coroutines.launch
  *
  * PodCapture only ever plays one item at a time, so "next track" has no other meaning and
  * is free to repurpose.
+ *
+ * Also serves the media notification's Capture button, so both entry points share the
+ * debounce and the shutter/failure cues.
  */
 class HeadsetCaptureHandler(
     context: Context,
@@ -79,8 +82,21 @@ class HeadsetCaptureHandler(
         if (keyEvent.action != KeyEvent.ACTION_DOWN) return false
         if (keyEvent.repeatCount > 0) return true
 
+        triggerCapture()
+        return true
+    }
+
+    /**
+     * Capture requested from the media notification's Capture button. Unlike the headset
+     * gesture it isn't gated by the headset capture setting (the user tapped "Capture"
+     * explicitly), but it gives the same audible feedback, including the failure cue when
+     * nothing is loaded. Returns whether a capture started. Must be called on the main thread.
+     */
+    fun captureFromNotification(): Boolean = triggerCapture()
+
+    private fun triggerCapture(): Boolean {
         val now = SystemClock.elapsedRealtime()
-        if (now - lastTriggerAtMs < DEBOUNCE_MS) return true
+        if (now - lastTriggerAtMs < DEBOUNCE_MS) return false
         lastTriggerAtMs = now
 
         val started = captureManager.capture { success ->
@@ -90,7 +106,7 @@ class HeadsetCaptureHandler(
         // marks the moment being captured; the "saved" message follows once transcription
         // (which can take several seconds) finishes.
         playSound(if (started) shutterSoundId else failedSoundId)
-        return true
+        return started
     }
 
     private fun playSound(soundId: Int) {
