@@ -16,9 +16,13 @@ import com.podcapture.data.repository.MarkdownManager
 import com.podcapture.data.repository.TagRepository
 import com.podcapture.data.settings.SettingsDataStore
 import com.podcapture.util.TranscriptFormattingParser
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class CaptureWithTags(
@@ -30,7 +34,6 @@ data class ViewerUiState(
     val audioFile: AudioFile? = null,
     val capturesWithTags: List<CaptureWithTags> = emptyList(),
     val allTags: List<Tag> = emptyList(),
-    val markdownContent: String? = null,
     val markdownFilePath: String? = null,
     val isLoading: Boolean = true,
     val editingCaptureId: String? = null,
@@ -40,6 +43,7 @@ data class ViewerUiState(
     val newTagName: String = "",
     // Episode info for episode captures
     val episodeTitle: String? = null,
+    val podcastTitle: String? = null,
     val episodePlaybackHistory: EpisodePlaybackHistory? = null,
     // Transcript formatting state
     val editingTranscriptCaptureId: String? = null,
@@ -54,18 +58,15 @@ data class ViewerUiState(
     val obsidianPreview: String = "",
     val obsidianVaultUri: String = "",
     val obsidianDefaultTags: String = "inbox/, resources/references/podcasts",
-    val obsidianExportResult: ObsidianExportResult? = null,
+    val isExportingToObsidian: Boolean = false,
+    // Shown inside the export dialog, which stays open so the user can fix and retry.
+    val obsidianExportError: String? = null,
     // Delete capture state
     val showDeleteConfirmDialog: Boolean = false,
     val captureToDelete: Capture? = null
 ) {
     // Helper property for backwards compatibility
     val captures: List<Capture> get() = capturesWithTags.map { it.capture }
-}
-
-sealed class ObsidianExportResult {
-    data class Success(val filePath: String) : ObsidianExportResult()
-    data class Error(val message: String) : ObsidianExportResult()
 }
 
 /**
@@ -93,6 +94,10 @@ class ViewerViewModel(
     private val _uiState = MutableStateFlow(ViewerUiState())
     val uiState: StateFlow<ViewerUiState> = _uiState.asStateFlow()
 
+    // One-shot success messages for the screen's snackbar.
+    private val _messages = Channel<String>(Channel.BUFFERED)
+    val messages: Flow<String> = _messages.receiveAsFlow()
+
     init {
         loadData()
         loadEpisodeInfoIfNeeded()
@@ -110,12 +115,16 @@ class ViewerViewModel(
             try {
                 val episodeId = audioFileId.removePrefix("episode_").toLongOrNull() ?: return@launch
                 val episode = podcastDao.getEpisodeById(episodeId)
+                val podcast = episode?.let { podcastDao.getBookmarkedPodcastById(it.podcastId) }
                 val playbackHistory = podcastDao.getPlaybackHistoryForEpisode(episodeId)
 
-                _uiState.value = _uiState.value.copy(
-                    episodeTitle = episode?.title,
-                    episodePlaybackHistory = playbackHistory
-                )
+                _uiState.update {
+                    it.copy(
+                        episodeTitle = episode?.title,
+                        podcastTitle = podcast?.title,
+                        episodePlaybackHistory = playbackHistory
+                    )
+                }
             } catch (e: Exception) {
                 // Ignore errors - episode info is optional
             }
@@ -129,14 +138,12 @@ class ViewerViewModel(
             if (audioFile != null) {
                 _uiState.value = _uiState.value.copy(
                     audioFile = audioFile,
-                    markdownContent = captureRepository.getMarkdownContent(audioFile),
                     markdownFilePath = captureRepository.getMarkdownFilePath(audioFile)
                 )
             }
 
             // Observe captures
             captureRepository.getCapturesForFile(audioFileId).collect { captures ->
-                val currentAudioFile = _uiState.value.audioFile
                 val capturesWithTags = captures.map { capture ->
                     CaptureWithTags(
                         capture = capture,
@@ -145,7 +152,6 @@ class ViewerViewModel(
                 }
                 _uiState.value = _uiState.value.copy(
                     capturesWithTags = capturesWithTags,
-                    markdownContent = currentAudioFile?.let { captureRepository.getMarkdownContent(it) },
                     isLoading = false
                 )
             }
@@ -356,7 +362,7 @@ class ViewerViewModel(
             obsidianTagsInput = "",
             obsidianTags = emptyList(),
             obsidianPreview = preview,
-            obsidianExportResult = null
+            obsidianExportError = null
         )
     }
 
@@ -375,7 +381,7 @@ class ViewerViewModel(
     fun onCloseObsidianDialog() {
         _uiState.value = _uiState.value.copy(
             showObsidianDialog = false,
-            obsidianExportResult = null
+            obsidianExportError = null
         )
     }
 
@@ -441,17 +447,31 @@ class ViewerViewModel(
         )
     }
 
+    /**
+     * Called when the user picks a vault folder from the export dialog (no vault was set yet).
+     * Saves it as the vault in Settings, then exports to it straight away.
+     */
+    fun onVaultFolderSelected(uri: String) {
+        // Update local state first so the export below sees the folder without waiting for the
+        // DataStore write to flow back through observeVaultPath().
+        _uiState.update { it.copy(obsidianVaultUri = uri) }
+        viewModelScope.launch { settingsDataStore.setObsidianVaultUri(uri) }
+        exportToObsidianVault()
+    }
+
     fun exportToObsidianVault() {
         val vaultUriString = _uiState.value.obsidianVaultUri
         val title = _uiState.value.obsidianTitle
         val content = getObsidianContent()
 
+        if (_uiState.value.isExportingToObsidian) return
         if (vaultUriString.isBlank()) {
-            _uiState.value = _uiState.value.copy(
-                obsidianExportResult = ObsidianExportResult.Error("Vault folder not selected. Go to Settings to select your Obsidian vault folder.")
-            )
+            _uiState.update {
+                it.copy(obsidianExportError = "No vault folder selected. Choose your Obsidian vault folder to export.")
+            }
             return
         }
+        _uiState.update { it.copy(isExportingToObsidian = true, obsidianExportError = null) }
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -483,20 +503,17 @@ class ViewerViewModel(
                     outputStream.write(content.toByteArray())
                 } ?: throw IllegalStateException("Cannot write to file")
 
-                _uiState.value = _uiState.value.copy(
-                    obsidianExportResult = ObsidianExportResult.Success(newFile.name ?: fileName),
-                    showObsidianDialog = false
-                )
+                _uiState.update { it.copy(isExportingToObsidian = false, showObsidianDialog = false) }
+                _messages.trySend("Exported to Obsidian: ${newFile.name ?: fileName}")
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    obsidianExportResult = ObsidianExportResult.Error("Export failed: ${e.message}")
-                )
+                _uiState.update {
+                    it.copy(
+                        isExportingToObsidian = false,
+                        obsidianExportError = "Export failed: ${e.message ?: e.javaClass.simpleName}"
+                    )
+                }
             }
         }
-    }
-
-    fun clearExportResult() {
-        _uiState.value = _uiState.value.copy(obsidianExportResult = null)
     }
 
     // Delete capture
