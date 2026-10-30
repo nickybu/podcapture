@@ -72,17 +72,13 @@ fun PlayerScreen(
     onNavigateBack: () -> Unit,
     onNavigateToViewer: (audioFileId: String, captureId: String?) -> Unit,
     modifier: Modifier = Modifier,
-    viewModel: PlayerViewModel = koinViewModel { parametersOf(audioFileId) }
+    // seekToMs is consumed once by the ViewModel as the load's start position. Applying it
+    // from composition re-seeked on every re-entry (back from Viewer, rotation) and raced
+    // the load.
+    viewModel: PlayerViewModel = koinViewModel { parametersOf(audioFileId, seekToMs) }
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
-
-    // Handle seek to timestamp from navigation
-    LaunchedEffect(seekToMs) {
-        seekToMs?.let { position ->
-            viewModel.onSeekTo(position)
-        }
-    }
 
     // Save position when leaving
     DisposableEffect(Unit) {

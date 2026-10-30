@@ -46,7 +46,7 @@ val appModule = module {
     single { PodcastRepository(androidContext(), get(), get(), get(), get()) }
 
     // Audio player
-    single { AudioPlayerService(androidContext()) }
+    single { AudioPlayerService(androidContext(), get()) }
 
     // Transcription - Whisper via Sherpa-ONNX
     single { WhisperModelManager(androidContext()) }
@@ -64,10 +64,19 @@ val appModule = module {
 
     // ViewModels
     viewModel { HomeViewModel(get(), get(), get(), get()) }
-    viewModel { params -> PlayerViewModel(params.get(), get(), get(), get(), get(), get()) }
+    // Player params are read by position: the optional seekToMs may be null, which
+    // type-based params.get() cannot resolve.
+    viewModel { params ->
+        PlayerViewModel(params[0], params.values.getOrNull(1) as Long?, get(), get(), get(), get(), get())
+    }
     viewModel { SettingsViewModel(get(), get()) }
     viewModel { params -> ViewerViewModel(params.get(), androidContext(), get(), get(), get(), get(), get(), get()) }
     viewModel { PodcastSearchViewModel(get(), get()) }
     viewModel { params -> PodcastDetailViewModel(params.get(), get(), get(), get(), get()) }
-    viewModel { params -> EpisodePlayerViewModel(params.get(), params.get(), get(), get(), get(), get(), get(), get(), get()) }
+    viewModel { params ->
+        EpisodePlayerViewModel(
+            params[0], params[1], params.values.getOrNull(2) as Long?,
+            get(), get(), get(), get(), get(), get(), get()
+        )
+    }
 }
