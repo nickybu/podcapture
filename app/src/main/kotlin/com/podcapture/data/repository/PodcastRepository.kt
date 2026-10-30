@@ -20,9 +20,11 @@ import com.podcapture.data.rss.RssFeedParser
 import com.podcapture.data.settings.SettingsDataStore
 import java.io.InputStream
 import java.io.OutputStream
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -479,6 +481,7 @@ class PodcastRepository(
         episode: CachedEpisode,
         onProgress: (DownloadProgress) -> Unit
     ): Result<String> = withContext(Dispatchers.IO) {
+        val progressIntervalNanos = 500_000_000L
         try {
             val episodesDir = File(context.filesDir, "episodes")
             if (!episodesDir.exists()) {
@@ -511,24 +514,45 @@ class PodcastRepository(
                 ?: episode.audioSize.takeIf { it > 0 }
                 ?: 0L
 
-            connection.getInputStream().use { input ->
-                FileOutputStream(tempFile).use { output ->
-                    val buffer = ByteArray(8192)
-                    var bytesRead: Int
-                    var totalBytesRead = 0L
+            try {
+                connection.getInputStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        var bytesRead: Int
+                        var totalBytesRead = 0L
+                        // Report progress only when the percent changes or every 500 ms, not
+                        // per read: each report fans out to UI state and the notification.
+                        var lastReportedPercent = -1
+                        var lastReportNanos = 0L
 
-                    while (input.read(buffer).also { bytesRead = it } != -1) {
-                        output.write(buffer, 0, bytesRead)
-                        totalBytesRead += bytesRead
-                        val progress = if (contentLength > 0) {
-                            ((totalBytesRead * 100) / contentLength).toInt().coerceIn(0, 99)
-                        } else 0
-                        onProgress(DownloadProgress(progress, totalBytesRead, contentLength))
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            // Blocking reads don't observe cancellation on their own.
+                            ensureActive()
+                            output.write(buffer, 0, bytesRead)
+                            totalBytesRead += bytesRead
+                            val progress = if (contentLength > 0) {
+                                ((totalBytesRead * 100) / contentLength).toInt().coerceIn(0, 99)
+                            } else 0
+                            val now = System.nanoTime()
+                            if (progress != lastReportedPercent ||
+                                now - lastReportNanos >= progressIntervalNanos
+                            ) {
+                                lastReportedPercent = progress
+                                lastReportNanos = now
+                                onProgress(DownloadProgress(progress, totalBytesRead, contentLength))
+                            }
+                        }
                     }
                 }
-            }
 
-            tempFile.renameTo(targetFile)
+                if (!tempFile.renameTo(targetFile)) {
+                    throw java.io.IOException("Could not move download into place: $targetFile")
+                }
+            } catch (e: Throwable) {
+                // Don't leave a partial .tmp behind (failure or cancellation).
+                tempFile.delete()
+                throw e
+            }
             val finalSize = targetFile.length()
             onProgress(DownloadProgress(100, finalSize, finalSize))
 
@@ -536,6 +560,9 @@ class PodcastRepository(
             ensureAudioFileEntry(audioFileId, episode, targetFile)
 
             Result.success(targetFile.absolutePath)
+        } catch (e: CancellationException) {
+            // Let cancellation propagate so the caller doesn't record it as a failed download.
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }
