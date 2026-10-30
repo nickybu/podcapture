@@ -89,6 +89,12 @@ fun ObsidianExportDialog(
                             modifier = Modifier.padding(12.dp)
                         )
                     }
+                    if (vaultPathConfigured) {
+                        // The saved folder may have moved or lost its permission.
+                        TextButton(onClick = { vaultPicker.launch(null) }) {
+                            Text("Choose a Different Vault Folder")
+                        }
+                    }
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
@@ -207,7 +213,7 @@ fun ObsidianExportDialog(
                     }
                 } else {
                     TextButton(onClick = { vaultPicker.launch(null) }) {
-                        Text("Choose Vault\u2026")
+                        Text("Choose Vault & Export")
                     }
                 }
             }

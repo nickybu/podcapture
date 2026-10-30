@@ -3,7 +3,7 @@
     Auto Backup rules for Android 11 (API 30) and lower. Android 12+ uses data_extraction_rules.xml.
     Excluded:
     - episodes/: downloaded podcast audio (large, re-downloadable)
-    - sherpa-onnx-whisper-tiny.en/: the ~120 MB Whisper model (re-downloadable). Including it
+    - sherpa-onnx-whisper-tiny.en/: the ~104 MB Whisper model (re-downloadable). Including it
       pushes the backup over the 25 MB quota, so nothing is backed up at all.
     - datastore/settings.preferences_pb: app settings, including the Podcast Index API secret.
 -->
