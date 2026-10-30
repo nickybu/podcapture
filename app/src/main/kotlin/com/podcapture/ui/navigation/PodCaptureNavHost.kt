@@ -35,6 +35,7 @@ import com.podcapture.audio.PlayerState
 import com.podcapture.capture.CaptureManager
 import com.podcapture.data.repository.AudioFileRepository
 import com.podcapture.data.settings.SettingsDataStore
+import com.podcapture.ui.captures.CapturesScreen
 import com.podcapture.ui.components.MiniPlayer
 import com.podcapture.ui.home.HomeScreen
 import com.podcapture.ui.player.EpisodePlayerScreen
@@ -128,6 +129,9 @@ fun PodCaptureNavHost(
                     },
                     onNavigateToEpisodePlayer = { episodeId, podcastId ->
                         navController.navigate(NavRoute.EpisodePlayer(episodeId, podcastId))
+                    },
+                    onNavigateToCaptures = {
+                        navController.navigate(NavRoute.Captures)
                     }
                 )
             }
@@ -212,6 +216,15 @@ fun PodCaptureNavHost(
                     onNavigateBack = { navController.popBackStack() },
                     onNavigateToViewer = { audioFileId, captureId ->
                         navController.navigate(NavRoute.Viewer(audioFileId, captureId))
+                    }
+                )
+            }
+
+            composable<NavRoute.Captures> {
+                CapturesScreen(
+                    onNavigateBack = { navController.popBackStack() },
+                    onOpenCapture = { audioFileId, captureId ->
+                        navController.navigate(NavRoute.Viewer(audioFileId, scrollToCaptureId = captureId))
                     }
                 )
             }

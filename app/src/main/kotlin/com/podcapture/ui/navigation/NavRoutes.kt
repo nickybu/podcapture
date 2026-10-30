@@ -24,4 +24,7 @@ sealed interface NavRoute {
 
     @Serializable
     data class PodcastDetail(val podcastId: Long) : NavRoute
+
+    @Serializable
+    data object Captures : NavRoute
 }
