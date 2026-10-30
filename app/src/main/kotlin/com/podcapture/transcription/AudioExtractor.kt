@@ -5,17 +5,23 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.net.Uri
+import android.util.Log
+import com.podcapture.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
-import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 class AudioExtractor(private val context: Context) {
 
-    data class AudioSegment(
-        val pcmData: ByteArray,
-        val sampleRate: Int
+    /**
+     * Mono 16 kHz audio as normalized floats ([-1, 1]), ready for the recognizer.
+     *
+     * [samples] may be longer than the audio; only the first [sampleCount] values are valid.
+     */
+    class AudioSegment(
+        val samples: FloatArray,
+        val sampleCount: Int,
+        val sampleRate: Int = Mono16kResampler.OUTPUT_SAMPLE_RATE
     )
 
     companion object {
@@ -24,6 +30,9 @@ class AudioExtractor(private val context: Context) {
         // MP3/AAC frames can be ~26ms each, and decoders may buffer several frames
         private const val SEEK_MARGIN_MS = 2000L  // 2 seconds before start
         private const val END_MARGIN_MS = 2000L   // 2 seconds after end
+        private const val CODEC_TIMEOUT_US = 10_000L
+        // Slack on top of the expected 16 kHz sample count so the output normally never grows.
+        private const val OUTPUT_SLACK_SAMPLES = 4096
     }
 
     suspend fun extractSegment(
@@ -46,15 +55,24 @@ class AudioExtractor(private val context: Context) {
             extractor.selectTrack(audioTrackIndex)
             val format = extractor.getTrackFormat(audioTrackIndex)
             val mime = format.getString(MediaFormat.KEY_MIME)!!
-            val sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
-            val channelCount = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            // The container's view of the stream is only a fallback: the decoder's output format
+            // is authoritative (HE-AAC decodes at twice the declared rate, and parametric stereo
+            // decodes mono-declared streams to stereo).
+            val containerFormat = format.toPcmFormat(previous = null)
 
-            android.util.Log.d(TAG, "Audio format: $mime, sampleRate=$sampleRate, channels=$channelCount")
+            Log.d(TAG, "Container format: $mime, sampleRate=${containerFormat.sampleRate}, channels=${containerFormat.channelCount}")
 
             // Create decoder
             decoder = MediaCodec.createDecoderByType(mime)
             decoder.configure(format, null, null, 0)
             decoder.start()
+
+            var pcmFormat = try {
+                decoder.outputFormat.toPcmFormat(previous = containerFormat)
+            } catch (e: IllegalStateException) {
+                containerFormat
+            }
+            Log.d(TAG, "Initial decoder output format: $pcmFormat")
 
             // Target window in microseconds
             val startUs = startMs * 1000L
@@ -65,13 +83,19 @@ class AudioExtractor(private val context: Context) {
             val seekTargetUs = ((startMs - SEEK_MARGIN_MS) * 1000L).coerceAtLeast(0L)
             val inputEndUs = (endMs + END_MARGIN_MS) * 1000L
 
-            android.util.Log.d(TAG, "Target window: ${startMs}ms - ${endMs}ms")
-            android.util.Log.d(TAG, "Extraction window with margins: ${seekTargetUs/1000}ms - ${inputEndUs/1000}ms")
+            Log.d(TAG, "Target window: ${startMs}ms - ${endMs}ms")
+            Log.d(TAG, "Extraction window with margins: ${seekTargetUs/1000}ms - ${inputEndUs/1000}ms")
 
             extractor.seekTo(seekTargetUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC)
-            android.util.Log.d(TAG, "Seeked to: ${extractor.sampleTime / 1000}ms")
+            Log.d(TAG, "Seeked to: ${extractor.sampleTime / 1000}ms")
 
-            val outputStream = ByteArrayOutputStream()
+            // Preallocate the output for the window length at 16 kHz.
+            val expectedSamples = (endMs - startMs).coerceAtLeast(0L) *
+                Mono16kResampler.OUTPUT_SAMPLE_RATE / 1000L
+            val resampler = Mono16kResampler(
+                (expectedSamples + OUTPUT_SLACK_SAMPLES).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            )
+
             val bufferInfo = MediaCodec.BufferInfo()
             var inputDone = false
             var outputDone = false
@@ -81,7 +105,7 @@ class AudioExtractor(private val context: Context) {
             while (!outputDone) {
                 // Feed input - continue until well past the end time to ensure decoder outputs everything
                 if (!inputDone) {
-                    val inputBufferIndex = decoder.dequeueInputBuffer(10000)
+                    val inputBufferIndex = decoder.dequeueInputBuffer(CODEC_TIMEOUT_US)
                     if (inputBufferIndex >= 0) {
                         val inputBuffer = decoder.getInputBuffer(inputBufferIndex)!!
                         val sampleSize = extractor.readSampleData(inputBuffer, 0)
@@ -93,7 +117,7 @@ class AudioExtractor(private val context: Context) {
                                 MediaCodec.BUFFER_FLAG_END_OF_STREAM
                             )
                             inputDone = true
-                            android.util.Log.d(TAG, "Input done after $inputSamplesCount samples, last time: ${sampleTimeUs/1000}ms")
+                            Log.d(TAG, "Input done after $inputSamplesCount samples, last time: ${sampleTimeUs/1000}ms")
                         } else {
                             decoder.queueInputBuffer(
                                 inputBufferIndex, 0, sampleSize,
@@ -106,53 +130,42 @@ class AudioExtractor(private val context: Context) {
                 }
 
                 // Get output
-                val outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, 10000)
-                if (outputBufferIndex >= 0) {
-                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
-                        outputDone = true
-                        android.util.Log.d(TAG, "Output done after $outputBuffersCount buffers")
-                    } else {
-                        val outputBuffer = decoder.getOutputBuffer(outputBufferIndex)!!
-                        outputBuffersCount++
+                val outputBufferIndex = decoder.dequeueOutputBuffer(bufferInfo, CODEC_TIMEOUT_US)
+                when {
+                    outputBufferIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                        pcmFormat = decoder.outputFormat.toPcmFormat(previous = pcmFormat)
+                        Log.d(TAG, "Decoder output format changed: $pcmFormat")
+                    }
 
-                        // Use the presentation timestamp from the decoder
-                        val bufferStartTimeUs = bufferInfo.presentationTimeUs
-                        val samplesInBuffer = bufferInfo.size / (2 * channelCount)
-                        val bufferDurationUs = (samplesInBuffer * 1_000_000L) / sampleRate
-                        val bufferEndTimeUs = bufferStartTimeUs + bufferDurationUs
-
-                        // Log first and last few buffers for debugging
-                        if (outputBuffersCount <= 3 || (inputDone && outputBuffersCount % 10 == 0)) {
-                            android.util.Log.d(TAG, "Output buffer #$outputBuffersCount: ${bufferStartTimeUs/1000}ms - ${bufferEndTimeUs/1000}ms (${bufferInfo.size} bytes)")
-                        }
-
-                        // Only include samples that fall within our target window
-                        if (bufferEndTimeUs >= startUs && bufferStartTimeUs <= endUs) {
-                            val chunk = ByteArray(bufferInfo.size)
-                            outputBuffer.get(chunk)
-
-                            // If this buffer spans the start or end boundary, trim it
-                            val trimmedChunk = trimChunkToWindow(
-                                chunk, channelCount, sampleRate,
-                                bufferStartTimeUs, bufferEndTimeUs,
-                                startUs, endUs
+                    outputBufferIndex >= 0 -> {
+                        if (bufferInfo.size > 0) {
+                            outputBuffersCount++
+                            val logDetails = BuildConfig.DEBUG &&
+                                (outputBuffersCount <= 3 || (inputDone && outputBuffersCount % 10 == 0))
+                            consumeOutputBuffer(
+                                decoder, outputBufferIndex, bufferInfo, pcmFormat,
+                                startUs, endUs, resampler,
+                                logLabel = if (logDetails) "#$outputBuffersCount" else null
                             )
-                            outputStream.write(trimmedChunk)
+                        }
+                        decoder.releaseOutputBuffer(outputBufferIndex, false)
+                        if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) {
+                            outputDone = true
+                            Log.d(TAG, "Output done after $outputBuffersCount buffers")
                         }
                     }
-                    decoder.releaseOutputBuffer(outputBufferIndex, false)
+
+                    // INFO_TRY_AGAIN_LATER, or the deprecated INFO_OUTPUT_BUFFERS_CHANGED
+                    // (irrelevant since buffers are fetched with getOutputBuffer).
+                    else -> Unit
                 }
             }
 
-            // Convert to mono 16kHz if needed for Whisper
-            val rawPcm = outputStream.toByteArray()
-            val convertedPcm = convertToMono16kHz(rawPcm, sampleRate, channelCount)
+            val sampleCount = resampler.finish()
+            val finalDurationMs = sampleCount * 1000L / Mono16kResampler.OUTPUT_SAMPLE_RATE
+            Log.d(TAG, "Final audio: $sampleCount samples = ${finalDurationMs}ms (target: ${endMs - startMs}ms)")
 
-            // Log final audio duration
-            val finalDurationMs = (convertedPcm.size / 2) * 1000L / 16000  // 16-bit mono at 16kHz
-            android.util.Log.d(TAG, "Final audio: ${convertedPcm.size} bytes = ${finalDurationMs}ms (target: ${endMs - startMs}ms)")
-
-            AudioSegment(convertedPcm, 16000)
+            AudioSegment(resampler.samples, sampleCount)
 
         } finally {
             decoder?.stop()
@@ -162,51 +175,54 @@ class AudioExtractor(private val context: Context) {
     }
 
     /**
-     * Trims a PCM chunk to only include samples within the target time window.
-     * Uses floating-point arithmetic to avoid precision loss at window boundaries.
+     * Trims one decoded buffer to the target window and streams the kept frames straight into
+     * [resampler] (down-mix and resample in one pass, no intermediate copy).
      */
-    private fun trimChunkToWindow(
-        chunk: ByteArray,
-        channelCount: Int,
-        sampleRate: Int,
-        bufferStartUs: Long,
-        bufferEndUs: Long,
+    private fun consumeOutputBuffer(
+        decoder: MediaCodec,
+        index: Int,
+        info: MediaCodec.BufferInfo,
+        format: PcmFormat,
         windowStartUs: Long,
-        windowEndUs: Long
-    ): ByteArray {
-        val bytesPerSample = 2 * channelCount  // 16-bit per channel
-        val totalSamples = chunk.size / bytesPerSample
+        windowEndUs: Long,
+        resampler: Mono16kResampler,
+        logLabel: String?
+    ) {
+        val totalFrames = info.size / format.bytesPerFrame
+        val range = PcmWindow.framesInWindow(
+            totalFrames, format.sampleRate, info.presentationTimeUs, windowStartUs, windowEndUs
+        )
 
-        // Calculate which samples to keep
-        val bufferDurationUs = bufferEndUs - bufferStartUs
-        if (bufferDurationUs <= 0 || totalSamples == 0) return chunk
-
-        // Use floating-point arithmetic to avoid precision loss
-        // Start sample index within this buffer
-        val startSampleIndex = if (bufferStartUs < windowStartUs) {
-            val skipUs = (windowStartUs - bufferStartUs).toDouble()
-            val fraction = skipUs / bufferDurationUs.toDouble()
-            (fraction * totalSamples).toInt().coerceIn(0, totalSamples)
-        } else 0
-
-        // End sample index within this buffer
-        val endSampleIndex = if (bufferEndUs > windowEndUs) {
-            val keepUs = (windowEndUs - bufferStartUs).toDouble()
-            val fraction = keepUs / bufferDurationUs.toDouble()
-            // Use ceiling to ensure we don't cut off the last sample
-            kotlin.math.ceil(fraction * totalSamples).toInt().coerceIn(0, totalSamples)
-        } else totalSamples
-
-        // If we need the whole buffer, return as-is
-        if (startSampleIndex == 0 && endSampleIndex == totalSamples) {
-            return chunk
+        if (logLabel != null) {
+            val endUs = info.presentationTimeUs + totalFrames * 1_000_000L / format.sampleRate
+            Log.d(TAG, "Output buffer $logLabel: ${info.presentationTimeUs / 1000}ms - ${endUs / 1000}ms (${info.size} bytes, keep=$range)")
         }
 
-        // Extract the trimmed portion
-        val startByte = startSampleIndex * bytesPerSample
-        val endByte = endSampleIndex * bytesPerSample
-        return chunk.copyOfRange(startByte.coerceAtLeast(0), endByte.coerceAtMost(chunk.size))
+        if (range == null || range.isEmpty) return
+
+        val buffer = decoder.getOutputBuffer(index) ?: return
+        buffer.limit(info.offset + info.size)
+        buffer.position(info.offset)
+        // MediaCodec PCM is in native byte order; slice() resets the order, so set it afterwards.
+        val pcm = buffer.slice().order(ByteOrder.nativeOrder())
+
+        resampler.setInputRate(format.sampleRate)
+        if (format.isFloat) {
+            resampler.write(pcm.asFloatBuffer(), format.channelCount, range.start, range.end)
+        } else {
+            resampler.write(pcm.asShortBuffer(), format.channelCount, range.start, range.end)
+        }
     }
+
+    private fun MediaFormat.toPcmFormat(previous: PcmFormat?): PcmFormat = PcmFormat.resolve(
+        sampleRate = intOrNull(MediaFormat.KEY_SAMPLE_RATE),
+        channelCount = intOrNull(MediaFormat.KEY_CHANNEL_COUNT),
+        encoding = intOrNull(MediaFormat.KEY_PCM_ENCODING),
+        previous = previous
+    )
+
+    private fun MediaFormat.intOrNull(key: String): Int? =
+        if (containsKey(key)) getInteger(key) else null
 
     private fun findAudioTrack(extractor: MediaExtractor): Int {
         for (i in 0 until extractor.trackCount) {
@@ -217,76 +233,5 @@ class AudioExtractor(private val context: Context) {
             }
         }
         return -1
-    }
-
-    private fun convertToMono16kHz(
-        input: ByteArray,
-        inputSampleRate: Int,
-        inputChannels: Int
-    ): ByteArray {
-        // Input is 16-bit PCM
-        val shortBuffer = ByteBuffer.wrap(input)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .asShortBuffer()
-
-        val inputSamples = ShortArray(shortBuffer.remaining())
-        shortBuffer.get(inputSamples)
-
-        // Convert to mono if stereo
-        val monoSamples = if (inputChannels == 2) {
-            ShortArray(inputSamples.size / 2) { i ->
-                ((inputSamples[i * 2].toInt() + inputSamples[i * 2 + 1].toInt()) / 2).toShort()
-            }
-        } else {
-            inputSamples
-        }
-
-        // Resample to 16kHz if needed using linear interpolation
-        val outputSamples = if (inputSampleRate != 16000) {
-            resampleWithInterpolation(monoSamples, inputSampleRate, 16000)
-        } else {
-            monoSamples
-        }
-
-        // Convert back to bytes
-        val outputBuffer = ByteBuffer.allocate(outputSamples.size * 2)
-            .order(ByteOrder.LITTLE_ENDIAN)
-        outputSamples.forEach { outputBuffer.putShort(it) }
-
-        return outputBuffer.array()
-    }
-
-    /**
-     * Resamples audio using linear interpolation for better quality.
-     * This prevents audio loss that can occur with nearest-neighbor resampling.
-     */
-    private fun resampleWithInterpolation(
-        input: ShortArray,
-        inputRate: Int,
-        outputRate: Int
-    ): ShortArray {
-        if (input.isEmpty()) return input
-
-        val ratio = inputRate.toDouble() / outputRate.toDouble()
-        val outputLength = (input.size / ratio).toInt()
-
-        if (outputLength <= 0) return ShortArray(0)
-
-        return ShortArray(outputLength) { i ->
-            val srcPosition = i * ratio
-            val srcIndex = srcPosition.toInt()
-            val fraction = srcPosition - srcIndex
-
-            if (srcIndex >= input.size - 1) {
-                // Last sample - no interpolation needed
-                input[input.size - 1]
-            } else {
-                // Linear interpolation between two samples
-                val sample1 = input[srcIndex].toInt()
-                val sample2 = input[srcIndex + 1].toInt()
-                val interpolated = sample1 + (sample2 - sample1) * fraction
-                interpolated.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-            }
-        }
     }
 }
